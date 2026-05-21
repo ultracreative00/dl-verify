@@ -14,7 +14,7 @@ Parsing strategy:
   1. Normalize raw payload (strip NUL bytes / control-char prefix artefacts)
   2. Try aamva-barcode-library (handles version negotiation cleanly)
   3. Fall back to hand-rolled regex/line parser for resilience
-  4. Normalize all date fields from MMDDCCYY → YYYY-MM-DD (ISO 8601)
+  4. Normalize all date fields from MMDDCCYY -> YYYY-MM-DD (ISO 8601)
   5. Collect all Z-prefixed jurisdiction-specific fields into a
      dedicated bucket (jurisdiction_fields)
 
@@ -43,11 +43,11 @@ AAMVA_FIELDS: Dict[str, Dict] = {
     "DBB": {"name": "Date of Birth",               "max_len": 8,  "required": True,  "format": "MMDDCCYY"},
     "DBA": {"name": "Document Expiration Date",    "max_len": 8,  "required": True,  "format": "MMDDCCYY"},
     "DBD": {"name": "Document Issue Date",         "max_len": 8,  "required": True,  "format": "MMDDCCYY"},
-    "DAG": {"name": "Address — Street 1",           "max_len": 35, "required": True},
-    "DAH": {"name": "Address — Street 2",           "max_len": 35, "required": False},
-    "DAI": {"name": "Address — City",              "max_len": 20, "required": True},
-    "DAJ": {"name": "Address — Jurisdiction Code", "max_len": 2,  "required": True},
-    "DAK": {"name": "Address — Postal Code",       "max_len": 11, "required": True},
+    "DAG": {"name": "Address - Street 1",           "max_len": 35, "required": True},
+    "DAH": {"name": "Address - Street 2",           "max_len": 35, "required": False},
+    "DAI": {"name": "Address - City",              "max_len": 20, "required": True},
+    "DAJ": {"name": "Address - Jurisdiction Code", "max_len": 2,  "required": True},
+    "DAK": {"name": "Address - Postal Code",       "max_len": 11, "required": True},
     "DBC": {"name": "Sex",                          "max_len": 1,  "required": True},
     "DAU": {"name": "Height (FT/IN)",              "max_len": 6,  "required": True},
     "DCF": {"name": "Document Discriminator",      "max_len": 25, "required": True},
@@ -71,9 +71,12 @@ _DATE_FIELDS = {"DBB", "DBA", "DBD", "DDH", "DDI", "DDJ"}
 # Regex: 3-char element ID followed by its value up to the next element ID or end-of-string
 _FIELD_RE = re.compile(r"([A-Z]{2}[A-Z0-9])(.+?)(?=[A-Z]{2}[A-Z0-9]|\Z)", re.DOTALL)
 
+# AAMVA payloads are always > 200 chars. Anything under 50 is the wrong barcode type.
+_AAMVA_MIN_LENGTH = 50
+
 
 # ---------------------------------------------------------------------------
-# ParsedAAMVADocument  — public return type
+# ParsedAAMVADocument  - public return type
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -84,7 +87,7 @@ class ParsedAAMVADocument:
     Attributes
     ----------
     raw_fields : Dict[str, str]
-        All extracted element IDs → raw string values exactly as they appear
+        All extracted element IDs -> raw string values exactly as they appear
         in the barcode (dates in MMDDCCYY, etc.).
 
     normalized_fields : Dict[str, str]
@@ -92,7 +95,7 @@ class ParsedAAMVADocument:
         (YYYY-MM-DD). Non-date fields are unchanged.
 
     jurisdiction_fields : Dict[str, str]
-        All Z-prefixed state-specific fields (ZAA, ZCA, ZVA, …).
+        All Z-prefixed state-specific fields (ZAA, ZCA, ZVA, ...).
         These are also present in raw_fields / normalized_fields.
 
     parse_method : str
@@ -113,18 +116,15 @@ def _normalize_payload(raw: str) -> str:
     Strip artefacts that barcode decoders (zxingcpp, pyzbar) sometimes
     prepend or append to the AAMVA payload:
 
-    • Leading/trailing ASCII whitespace
-    • NUL bytes (\x00) — common when a PDF417 reader pads the output
-    • Non-printable bytes before the first recognised AAMVA marker
-      ('@', 'ANSI', or a 3-char element ID like 'DAQ')
+    - Leading/trailing ASCII whitespace
+    - NUL bytes (\x00) -- common when a PDF417 reader pads the output
+    - Non-printable bytes before the first recognised AAMVA marker
 
     The ORIGINAL raw string is still passed to the sub-parsers so that
     subfile byte-offsets remain intact; this normalised copy is used ONLY
     for the header sanity check.
     """
-    # Remove null bytes and strip surrounding whitespace
-    cleaned = raw.replace("\x00", "").strip()
-    return cleaned
+    return raw.replace("\x00", "").strip()
 
 
 def _looks_like_aamva(text: str) -> bool:
@@ -132,17 +132,14 @@ def _looks_like_aamva(text: str) -> bool:
     Return True if *text* contains at least one canonical AAMVA marker.
 
     Accepts any of:
-      '@'    — the AAMVA file-separator character that opens every compliant
-               barcode (may be preceded by NUL bytes on some readers)
-      'ANSI' — the issuer identification prefix in the AAMVA header
-      'DAQ'  — the mandatory Customer ID element, present in every DL barcode
-      'AAMVA'— alternative header used by some older state encodings
-      'DL'   — subfile designator; present in every AAMVA DL record
+      '@'    -- the AAMVA file-separator character that opens every compliant barcode
+      'ANSI' -- the issuer identification prefix in the AAMVA header
+      'DAQ'  -- the mandatory Customer ID element, present in every DL barcode
+      'AAMVA'-- alternative header used by some older state encodings
+      'DL'   -- subfile designator; present in every AAMVA DL record
 
-    Requiring ALL three was too strict — real payloads with encoding
-    artefacts can fail one or two of these checks while still being valid.
     Requiring ANY ONE is permissive enough to handle edge cases while still
-    rejecting clearly non-AAMVA binary blobs.
+    rejecting clearly non-AAMVA payloads (like 1D barcode strings).
     """
     markers = ("@", "ANSI", "DAQ", "AAMVA", "DL")
     return any(m in text for m in markers)
@@ -172,7 +169,7 @@ def _normalize_date(mmddccyy: str) -> str:
         dt = datetime.strptime(raw, "%m%d%Y")
         return dt.strftime("%Y-%m-%d")
     except ValueError:
-        return raw  # e.g. month=13 — return raw so validator can flag it
+        return raw  # e.g. month=13 -- return raw so validator can flag it
 
 
 def _apply_date_normalization(fields: Dict[str, str]) -> Dict[str, str]:
@@ -197,7 +194,7 @@ def _extract_zxx_fields(fields: Dict[str, str]) -> Dict[str, str]:
     """
     Pull all Z-prefixed element IDs into a separate dict.
     These are jurisdiction-specific fields (ZAA, ZCA, ZVA, ZCZ, etc.).
-    They remain in the main fields dict as well — this is a secondary index.
+    They remain in the main fields dict as well -- this is a secondary index.
     """
     return {k: v for k, v in fields.items() if k.startswith("Z")}
 
@@ -281,20 +278,30 @@ def parse_aamva(raw_barcode: str) -> ParsedAAMVADocument:
     Returns
     -------
     ParsedAAMVADocument
-        .raw_fields          — all element IDs with original values
-        .normalized_fields   — same but date fields in YYYY-MM-DD
-        .jurisdiction_fields — Z-prefixed state-specific fields
-        .parse_method        — "library" | "fallback"
+        .raw_fields          -- all element IDs with original values
+        .normalized_fields   -- same but date fields in YYYY-MM-DD
+        .jurisdiction_fields -- Z-prefixed state-specific fields
+        .parse_method        -- "library" | "fallback"
 
     Raises
     ------
     ValueError
-        If the payload is too short or fails basic AAMVA header sanity checks.
+        If the payload is too short, fails AAMVA header sanity checks,
+        or yields fewer than 3 parseable fields.
     """
-    if not raw_barcode or len(raw_barcode) < 20:
-        raise ValueError("Barcode payload too short to be a valid AAMVA document")
+    if not raw_barcode:
+        raise ValueError("Barcode payload is empty")
 
-    # Normalise for the header check only — parsers still receive the original
+    if len(raw_barcode) < _AAMVA_MIN_LENGTH:
+        raise ValueError(
+            f"Barcode payload is only {len(raw_barcode)} characters -- "
+            f"AAMVA PDF417 payloads are always >{_AAMVA_MIN_LENGTH} chars. "
+            "This is almost certainly a 1D barcode (Code128/Code39) decoded "
+            "instead of the PDF417. Make sure the BACK of the DL is uploaded, "
+            "not the front."
+        )
+
+    # Normalise for the header check only -- parsers still receive the original
     cleaned = _normalize_payload(raw_barcode)
 
     logger.debug(
@@ -308,7 +315,8 @@ def parse_aamva(raw_barcode: str) -> ParsedAAMVADocument:
         raise ValueError(
             "Barcode payload does not appear to be AAMVA-formatted "
             "(missing expected header markers '@', 'ANSI', 'DAQ', 'AAMVA', or 'DL'). "
-            f"Payload preview (first 80 chars): {repr(cleaned[:80])}"
+            f"Payload length: {len(raw_barcode)} chars. "
+            f"Preview (first 80 chars): {repr(cleaned[:80])}"
         )
 
     # --- Strategy 1: aamva-barcode-library ---
@@ -322,7 +330,7 @@ def parse_aamva(raw_barcode: str) -> ParsedAAMVADocument:
 
     if len(raw_fields) < 3:
         raise ValueError(
-            f"AAMVA parser extracted only {len(raw_fields)} fields — "
+            f"AAMVA parser extracted only {len(raw_fields)} fields -- "
             "barcode may be malformed or non-AAMVA"
         )
 
