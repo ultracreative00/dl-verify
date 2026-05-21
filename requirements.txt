@@ -20,17 +20,19 @@ numpy==1.26.4
 scipy==1.13.1
 
 # ── PDF417 / AAMVA parsing ──────────────────────────────────────
-# Pure-Python AAMVA field parser (handles 2016 + 2020 standard versions)
-# https://github.com/benhovinga/aamva_barcode_library
-aamva-barcode-library==0.3.0
+# aamva-barcode-library has no Python 3.12+ wheel on PyPI.
+# The parser (app/core/barcode/parser.py) already contains a full
+# hand-rolled fallback that is used automatically when the library
+# is absent — no functionality is lost.
+#
+# If you are on Python <=3.11 and want the library as an optional
+# accelerator you may uncomment the line below:
+# aamva-barcode-library==0.3.0
 
 # ── OCR — Sprint 2 (comment out if not needed) ─────────────────
 # paddleocr==2.7.3
 # paddlepaddle==2.6.1
 # Install separately: pip install paddlepaddle paddleocr
-
-# AWS Textract fallback (Sprint 2)
-boto3==1.34.121
 
 # ── Utilities ──────────────────────────────────────────────────
 python-dotenv==1.0.1
@@ -44,4 +46,3 @@ usaddress==0.5.10
 pytest==8.2.1
 pytest-asyncio==0.23.7
 Faker==25.3.0
-httpx==0.27.0
