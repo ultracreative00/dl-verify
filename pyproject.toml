@@ -1,0 +1,105 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "dl-verify"
+version = "0.1.0"
+description = "Production-grade AAMVA Driver's License fraud detection API"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Private" }
+authors = [{ name = "ultracreative00" }]
+keywords = ["kyc", "aamva", "identity-verification", "fraud-detection", "fastapi"]
+classifiers = [
+    "Programming Language :: Python :: 3.11",
+    "Framework :: FastAPI",
+    "Topic :: Security",
+]
+
+# ---------------------------------------------------------------------------
+# Tool: pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths       = ["tests"]
+python_files    = ["test_*.py"]
+python_classes  = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode    = "auto"
+addopts         = "-v --tb=short"
+filterwarnings  = ["ignore::DeprecationWarning"]
+
+# ---------------------------------------------------------------------------
+# Tool: ruff  (fast linter + import sorter)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length    = 100
+exclude        = [".venv", "dist", "build", "__pycache__"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long — handled by formatter
+    "B008",  # do not perform function calls in default args (FastAPI Depends pattern)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ---------------------------------------------------------------------------
+# Tool: black  (formatter)
+# ---------------------------------------------------------------------------
+[tool.black]
+line-length    = 100
+target-version = ["py311"]
+exclude        = '''
+/(
+    \.venv
+  | dist
+  | build
+)/
+'''
+
+# ---------------------------------------------------------------------------
+# Tool: mypy  (static type checker)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version         = "3.11"
+strict                 = false
+ignore_missing_imports = true
+disallow_untyped_defs  = true
+warn_return_any        = true
+warn_unused_configs    = true
+exclude                = ["tests/", "dist/", "build/"]
+
+[[tool.mypy.overrides]]
+module = ["cv2.*", "pyzbar.*", "zxingcpp.*", "usaddress.*", "ulid.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Tool: coverage  (pytest-cov)
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source   = ["app"]
+branch   = true
+omit     = ["tests/*", "**/__init__.py"]
+
+[tool.coverage.report]
+show_missing   = true
+skip_covered   = false
+fail_under     = 60
+exclude_lines  = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@(abc\\.)?abstractmethod",
+]
