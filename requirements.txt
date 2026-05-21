@@ -4,7 +4,7 @@ uvicorn[standard]==0.34.3
 python-multipart==0.0.20
 
 # ── Data validation ────────────────────────────────────────────
-# bumped to >=2.12.5 to satisfy hermes-agent + exa-py requirements
+# >=2.12.5 satisfies hermes-agent + exa-py
 pydantic==2.12.5
 pydantic-settings==2.9.1
 
@@ -16,7 +16,6 @@ pyzbar==0.1.9
 
 # ── Image processing ───────────────────────────────────────────
 Pillow==11.2.1
-# opencv-python-headless (no GUI deps) — opencv-python 4.13 requires numpy>=2
 opencv-python-headless==4.11.0.86
 # numpy>=2 required by opencv-python 4.13+ on Python 3.9+
 numpy==2.2.6
@@ -25,8 +24,8 @@ scipy==1.15.3
 # ── PDF417 / AAMVA parsing ──────────────────────────────────────
 # aamva-barcode-library has no Python 3.12+ wheel on PyPI.
 # The parser (app/core/barcode/parser.py) contains a full hand-rolled
-# fallback used automatically when the library is absent — no loss of
-# functionality. Uncomment below only if running Python <=3.11:
+# fallback used automatically when the library is absent.
+# Uncomment below only if running Python <=3.11:
 # aamva-barcode-library==0.3.0
 
 # ── OCR — Sprint 2 (uncomment when ready) ────────────────────────
@@ -35,11 +34,11 @@ scipy==1.15.3
 # Install separately: pip install paddlepaddle paddleocr
 
 # ── Utilities ──────────────────────────────────────────────────
-# bumped to >=1.2.1 to satisfy hermes-agent requirement
-python-dotenv==1.1.0
+# >=1.2.1 satisfies hermes-agent <2,>=1.2.1
+python-dotenv==1.2.1
 structlog==25.4.0
 ulid-py==1.1.0
-# bumped to >=0.28.1 to satisfy hermes-agent + exa-py requirements
+# >=0.28.1[socks] satisfies hermes-agent + exa-py
 httpx[socks]==0.28.1
 python-dateutil==2.9.0
 usaddress==0.5.10
