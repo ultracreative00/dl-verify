@@ -74,6 +74,11 @@ _FIELD_RE = re.compile(r"([A-Z]{2}[A-Z0-9])(.+?)(?=[A-Z]{2}[A-Z0-9]|\Z)", re.DOT
 # AAMVA payloads are always > 200 chars. Anything under 50 is the wrong barcode type.
 _AAMVA_MIN_LENGTH = 50
 
+# Control characters that the AAMVA format uses as delimiters and that
+# barcode decoders embed in the payload string.
+# These must NEVER appear in field values; strip them unconditionally.
+_CTRL_CHARS = str.maketrans("", "", "\r\n\x00\x1e\x1d\t")
+
 
 # ---------------------------------------------------------------------------
 # ParsedAAMVADocument  - public return type
@@ -89,6 +94,7 @@ class ParsedAAMVADocument:
     raw_fields : Dict[str, str]
         All extracted element IDs -> raw string values exactly as they appear
         in the barcode (dates in MMDDCCYY, etc.).
+        Values are stripped of control characters (\r, \n, \x00, \x1e).
 
     normalized_fields : Dict[str, str]
         Same as raw_fields but with date values converted to ISO 8601
@@ -108,6 +114,28 @@ class ParsedAAMVADocument:
 
 
 # ---------------------------------------------------------------------------
+# Value cleaning
+# ---------------------------------------------------------------------------
+
+def _clean_value(value: str) -> str:
+    """
+    Strip all AAMVA delimiter control characters from a field value and
+    trim surrounding whitespace.
+
+    The AAMVA PDF417 format uses \n (0x0A) as a field delimiter and
+    \x1e / \x1d as record/subfile separators. Barcode decoders embed
+    these characters in the decoded string. If they are not stripped
+    before storing field values every downstream check fails:
+
+      'NC\n'       -> length 3, fails max_len=2 for DAJ
+      '03031974\n' -> fails re.fullmatch(r'\d{8}', ...)
+      '1\n'        -> not in {"1","2","9"} for DBC sex code
+      'USA\n'      -> != 'USA' for DCG country check
+    """
+    return value.translate(_CTRL_CHARS).strip()
+
+
+# ---------------------------------------------------------------------------
 # Payload normalisation
 # ---------------------------------------------------------------------------
 
@@ -118,28 +146,15 @@ def _normalize_payload(raw: str) -> str:
 
     - Leading/trailing ASCII whitespace
     - NUL bytes (\x00) -- common when a PDF417 reader pads the output
+    - \x1e (AAMVA record separator)
     - Non-printable bytes before the first recognised AAMVA marker
-
-    The ORIGINAL raw string is still passed to the sub-parsers so that
-    subfile byte-offsets remain intact; this normalised copy is used ONLY
-    for the header sanity check.
     """
-    return raw.replace("\x00", "").strip()
+    return raw.replace("\x00", "").replace("\x1e", "").strip()
 
 
 def _looks_like_aamva(text: str) -> bool:
     """
     Return True if *text* contains at least one canonical AAMVA marker.
-
-    Accepts any of:
-      '@'    -- the AAMVA file-separator character that opens every compliant barcode
-      'ANSI' -- the issuer identification prefix in the AAMVA header
-      'DAQ'  -- the mandatory Customer ID element, present in every DL barcode
-      'AAMVA'-- alternative header used by some older state encodings
-      'DL'   -- subfile designator; present in every AAMVA DL record
-
-    Requiring ANY ONE is permissive enough to handle edge cases while still
-    rejecting clearly non-AAMVA payloads (like 1D barcode strings).
     """
     markers = ("@", "ANSI", "DAQ", "AAMVA", "DL")
     return any(m in text for m in markers)
@@ -152,17 +167,9 @@ def _looks_like_aamva(text: str) -> bool:
 def _normalize_date(mmddccyy: str) -> str:
     """
     Convert an AAMVA date string from MMDDCCYY to ISO 8601 YYYY-MM-DD.
-
-    Parameters
-    ----------
-    mmddccyy : e.g. "07151990" (July 15, 1990)
-
-    Returns
-    -------
-    str : "1990-07-15", or the original string if parsing fails
-          (invalid dates are flagged later by the cross-validation layer).
+    Input is stripped of whitespace and control chars before parsing.
     """
-    raw = mmddccyy.strip()
+    raw = _clean_value(mmddccyy)  # strip any residual control chars
     if len(raw) != 8 or not raw.isdigit():
         return raw  # pass through unchanged; validators will catch it
     try:
@@ -176,13 +183,16 @@ def _apply_date_normalization(fields: Dict[str, str]) -> Dict[str, str]:
     """
     Return a copy of *fields* with all date field values converted to
     ISO 8601. Non-date fields are copied unchanged.
+    Values are re-cleaned here as a safety net even if _fallback_parse
+    already cleaned them.
     """
     normalized: Dict[str, str] = {}
     for elem_id, value in fields.items():
+        clean = _clean_value(value)
         if elem_id in _DATE_FIELDS:
-            normalized[elem_id] = _normalize_date(value)
+            normalized[elem_id] = _normalize_date(clean)
         else:
-            normalized[elem_id] = value
+            normalized[elem_id] = clean
     return normalized
 
 
@@ -193,8 +203,6 @@ def _apply_date_normalization(fields: Dict[str, str]) -> Dict[str, str]:
 def _extract_zxx_fields(fields: Dict[str, str]) -> Dict[str, str]:
     """
     Pull all Z-prefixed element IDs into a separate dict.
-    These are jurisdiction-specific fields (ZAA, ZCA, ZVA, ZCZ, etc.).
-    They remain in the main fields dict as well -- this is a secondary index.
     """
     return {k: v for k, v in fields.items() if k.startswith("Z")}
 
@@ -212,7 +220,9 @@ def _try_aamva_library(raw: str) -> Optional[Dict[str, str]]:
         result: Dict[str, str] = {}
         for subfile in doc.subfiles:
             for elem_id, value in subfile.elements.items():
-                result[str(elem_id).strip()] = str(value).strip()
+                cleaned = _clean_value(str(value))
+                if cleaned:
+                    result[str(elem_id).strip()] = cleaned
         return result if result else None
 
     except ImportError:
@@ -233,8 +243,19 @@ def _try_aamva_library(raw: str) -> Optional[Dict[str, str]]:
 def _fallback_parse(raw: str) -> Dict[str, str]:
     """
     Hand-rolled AAMVA parser.
+
     Handles the standard @\n\x1e\rANSI ... DL subfile line-delimited format
     as well as the compact (no-newline) variant.
+
+    Key fix: AAMVA barcodes use \n as the field delimiter, so each line ends
+    with \n AFTER the field value. The line scanner must strip this delimiter
+    (and all other control chars) from every value via _clean_value().
+
+    Additionally, the DL subfile record begins with 'DL' + a 4-digit record
+    length, meaning the first field line looks like:
+        'DL0280DAQ123456789\n'
+    We must skip the 'DL' prefix and the record-length digits before looking
+    for 3-char element IDs.
     """
     fields: Dict[str, str] = {}
 
@@ -243,20 +264,43 @@ def _fallback_parse(raw: str) -> Dict[str, str]:
     data_section = raw[dl_marker:] if dl_marker != -1 else raw
 
     # Strategy A: line-by-line (most common encoding)
-    lines = re.split(r"\r?\n", data_section)
-    for line in lines:
-        line = line.strip()
-        if len(line) >= 4 and re.match(r"^[A-Z]{2}[A-Z0-9]", line):
+    # Split on any combination of \r and \n
+    lines = re.split(r"[\r\n]+", data_section)
+    for raw_line in lines:
+        # Strip all control characters from the line first
+        line = _clean_value(raw_line)
+        if not line:
+            continue
+
+        # Skip the 'DL' subfile header line (starts with 'DL' followed
+        # by digits, e.g. 'DL0280').
+        # Also skip 'ID' subfile headers (some states encode both DL+ID).
+        header_match = re.match(r'^(DL|ID)\d*', line)
+        if header_match:
+            # The remainder after the header prefix may contain the first
+            # field immediately -- try to extract it.
+            remainder = line[header_match.end():]
+            if len(remainder) >= 4 and re.match(r'^[A-Z]{2}[A-Z0-9]', remainder):
+                elem_id = remainder[:3]
+                value = remainder[3:].strip()
+                if elem_id and value:
+                    fields[elem_id] = value
+            continue
+
+        # Normal field line: must start with a 3-char element ID
+        if len(line) >= 4 and re.match(r'^[A-Z]{2}[A-Z0-9]', line):
             elem_id = line[:3]
             value = line[3:].strip()
             if elem_id and value:
                 fields[elem_id] = value
 
     # Strategy B: compact regex scan (fallback when < 5 fields from line scan)
+    # Used for barcodes encoded without newline delimiters.
     if len(fields) < 5:
+        fields.clear()  # discard partial results
         for m in _FIELD_RE.finditer(data_section):
             elem_id = m.group(1)
-            value = m.group(2).strip().rstrip("\r\n")
+            value = _clean_value(m.group(2))
             if value:
                 fields[elem_id] = value
 
@@ -278,7 +322,7 @@ def parse_aamva(raw_barcode: str) -> ParsedAAMVADocument:
     Returns
     -------
     ParsedAAMVADocument
-        .raw_fields          -- all element IDs with original values
+        .raw_fields          -- all element IDs with original values (ctrl chars stripped)
         .normalized_fields   -- same but date fields in YYYY-MM-DD
         .jurisdiction_fields -- Z-prefixed state-specific fields
         .parse_method        -- "library" | "fallback"
@@ -301,7 +345,6 @@ def parse_aamva(raw_barcode: str) -> ParsedAAMVADocument:
             "not the front."
         )
 
-    # Normalise for the header check only -- parsers still receive the original
     cleaned = _normalize_payload(raw_barcode)
 
     logger.debug(
@@ -335,6 +378,7 @@ def parse_aamva(raw_barcode: str) -> ParsedAAMVADocument:
         )
 
     # --- Post-processing ---
+    # _apply_date_normalization also re-cleans all values as a safety net
     normalized_fields = _apply_date_normalization(raw_fields)
     jurisdiction_fields = _extract_zxx_fields(raw_fields)
 
