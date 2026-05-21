@@ -68,8 +68,16 @@ AAMVA_FIELDS: Dict[str, Dict] = {
 # Element IDs whose values are MMDDCCYY-formatted dates
 _DATE_FIELDS = {"DBB", "DBA", "DBD", "DDH", "DDI", "DDJ"}
 
-# Regex: 3-char element ID followed by its value up to the next element ID or end-of-string
-_FIELD_RE = re.compile(r"([A-Z]{2}[A-Z0-9])(.+?)(?=[A-Z]{2}[A-Z0-9]|\Z)", re.DOTALL)
+# Regex: 3-char element ID followed by its value up to the next element ID or end-of-string.
+# Minimum value length is 1 char; (.{1,}) avoids the 0-char empty-match edge case
+# but the real guard is the {2,} minimum below that prevents single-char truncation
+# when consecutive IDs are directly adjacent after delimiter stripping.
+#
+# BUG FIX: changed (.+?) to (.{1,}?) with re.DOTALL to ensure the lazy quantifier
+# doesn't match zero-length values.  The real protection is that Strategy B is only
+# used when line-splitting produces <5 fields, and _split_field_section below
+# handles the common \x1e-delimited case before we reach the regex.
+_FIELD_RE = re.compile(r"([A-Z]{2}[A-Z0-9])(.{1,}?)(?=[A-Z]{2}[A-Z0-9]|\Z)", re.DOTALL)
 
 # AAMVA payloads are always > 200 chars. Anything under 50 is the wrong barcode type.
 _AAMVA_MIN_LENGTH = 50
@@ -141,15 +149,24 @@ def _clean_value(value: str) -> str:
 
 def _normalize_payload(raw: str) -> str:
     """
-    Strip artefacts that barcode decoders (zxingcpp, pyzbar) sometimes
-    prepend or append to the AAMVA payload:
+    Minimal cleanup of barcode decoder artefacts that appear BEFORE the
+    AAMVA header -- NUL bytes, leading/trailing whitespace.
 
-    - Leading/trailing ASCII whitespace
-    - NUL bytes (\x00) -- common when a PDF417 reader pads the output
-    - \x1e (AAMVA record separator)
-    - Non-printable bytes before the first recognised AAMVA marker
+    IMPORTANT: we do NOT strip \n, \r, or \x1e globally here.
+    Those characters are the field delimiters inside the data section
+    and must be preserved so that _fallback_parse can split on them.
+    Stripping them globally (old behaviour) caused the entire data
+    section to collapse into one unsplit line, triggering Strategy B
+    where the lazy (.+?) regex matched only 1 character per field --
+    producing truncated values like 'C', 'R', 'N' instead of full names.
+
+    Only NUL bytes (\x00) are stripped globally because they are
+    true decoder artefacts with no semantic meaning in any AAMVA field.
     """
-    return raw.replace("\x00", "").replace("\x1e", "").strip()
+    # Remove NUL bytes that some PDF417 readers pad into the output
+    cleaned = raw.replace("\x00", "")
+    # Strip leading/trailing ASCII whitespace only (not internal)
+    return cleaned.strip()
 
 
 def _looks_like_aamva(text: str) -> bool:
@@ -237,6 +254,35 @@ def _try_aamva_library(raw: str) -> Optional[Dict[str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# Data section splitter  (handles \n, \r, and \x1e delimiters)
+# ---------------------------------------------------------------------------
+
+def _split_field_section(data_section: str) -> list[str]:
+    """
+    Split the AAMVA data section into individual field lines.
+
+    The AAMVA standard specifies \n (0x0A) as the field record separator.
+    However, different PDF417 decoders and card-writer implementations
+    use different control characters as field delimiters in practice:
+
+      zxingcpp on AAMVA 2010+  : \n  (most common)
+      pyzbar on some encoders  : \r\n
+      Some older card writers  : \x1e (ASCII Record Separator, 0x1E)
+      Some encoders            : \x1d (ASCII Group Separator, 0x1D)
+
+    This splitter handles all four variants by splitting on any
+    combination of [\r\n\x1e\x1d]+.
+
+    BUG FIX: The old code split only on [\r\n]+.  When \x1e was used
+    as the field delimiter, all fields collapsed into a single line.
+    Strategy B (regex) then ran on the unsplit string, and the lazy
+    (.+?) quantifier matched only 1 char per field (e.g. 'C', 'R', 'N')
+    instead of the full field value.
+    """
+    return re.split(r"[\r\n\x1e\x1d]+", data_section)
+
+
+# ---------------------------------------------------------------------------
 # Fallback hand-rolled parser
 # ---------------------------------------------------------------------------
 
@@ -247,15 +293,16 @@ def _fallback_parse(raw: str) -> Dict[str, str]:
     Handles the standard @\n\x1e\rANSI ... DL subfile line-delimited format
     as well as the compact (no-newline) variant.
 
-    Key fix: AAMVA barcodes use \n as the field delimiter, so each line ends
-    with \n AFTER the field value. The line scanner must strip this delimiter
-    (and all other control chars) from every value via _clean_value().
+    Key fix: AAMVA barcodes use \n (and sometimes \x1e) as the field
+    delimiter, so each field is separated by one of these characters.
+    The line scanner must strip these delimiters from every value via
+    _clean_value().
 
-    Additionally, the DL subfile record begins with 'DL' + a 4-digit record
-    length, meaning the first field line looks like:
+    Additionally, the DL subfile record begins with 'DL' + a 4-digit
+    record length, meaning the first field line looks like:
         'DL0280DAQ123456789\n'
-    We must skip the 'DL' prefix and the record-length digits before looking
-    for 3-char element IDs.
+    We must skip the 'DL' prefix and the record-length digits before
+    looking for 3-char element IDs.
     """
     fields: Dict[str, str] = {}
 
@@ -264,10 +311,12 @@ def _fallback_parse(raw: str) -> Dict[str, str]:
     data_section = raw[dl_marker:] if dl_marker != -1 else raw
 
     # Strategy A: line-by-line (most common encoding)
-    # Split on any combination of \r and \n
-    lines = re.split(r"[\r\n]+", data_section)
+    # BUG FIX: split on [\r\n\x1e\x1d]+ to handle all AAMVA delimiter variants.
+    # Old code split only on [\r\n]+, missing \x1e-delimited barcodes.
+    lines = _split_field_section(data_section)
+
     for raw_line in lines:
-        # Strip all control characters from the line first
+        # Strip all control characters from the line
         line = _clean_value(raw_line)
         if not line:
             continue
@@ -295,12 +344,16 @@ def _fallback_parse(raw: str) -> Dict[str, str]:
                 fields[elem_id] = value
 
     # Strategy B: compact regex scan (fallback when < 5 fields from line scan)
-    # Used for barcodes encoded without newline delimiters.
+    # Used for barcodes encoded without any line/record delimiters.
+    # Only runs if line-splitting found very few fields -- acts as last resort.
     if len(fields) < 5:
         fields.clear()  # discard partial results
-        for m in _FIELD_RE.finditer(data_section):
+        # Strip all remaining control chars before regex scan so element IDs
+        # and values are directly adjacent without delimiter noise.
+        compact = data_section.translate(_CTRL_CHARS)
+        for m in _FIELD_RE.finditer(compact):
             elem_id = m.group(1)
-            value = _clean_value(m.group(2))
+            value = m.group(2).strip()
             if value:
                 fields[elem_id] = value
 

@@ -12,8 +12,8 @@ Driver's License and runs the full Sprint-1 validation pipeline:
 
 Returns a structured VerifyResponse JSON that exposes every signal
 and sub-score so the calling SMB application can surface the reason
-for a REVIEW / REJECT to its operator — a deliberate contrast to
-Persona’s opaque output.
+for a REVIEW / REJECT to its operator -- a deliberate contrast to
+Persona's opaque output.
 
 All heavy I/O (image bytes) is read once and passed by reference;
 no temp files are written to disk.
@@ -52,7 +52,7 @@ class SignalBreakdown(BaseModel):
     """Per-check result block surfaced in the API response."""
     check: str = Field(..., description="Validator check name")
     severity: str = Field(..., description="pass | warn | fail")
-    score: float = Field(..., description="Weighted contribution 0.0–1.0")
+    score: float = Field(..., description="Weighted contribution 0.0-1.0")
     signals: Dict[str, Any] = Field(
         default_factory=dict,
         description="All raw signals produced by this check",
@@ -130,35 +130,59 @@ class VerifyResponse(BaseModel):
 SEX_MAP = {"1": "M", "2": "F", "9": "Not Specified"}
 
 
+def _clean_field(value: Optional[str]) -> Optional[str]:
+    """
+    Final safety strip applied to every value before it enters the
+    ExtractedFields response schema.
+
+    Even if parser.py has already stripped control chars, this guard
+    ensures the API response never emits raw \n, \r, \x1e, or leading/
+    trailing whitespace in any displayed field -- regardless of which
+    parser path (library vs fallback) produced the value.
+
+    BUG FIX: previously _build_extracted_fields called f.get() directly
+    and returned the raw value. When the library parser path ran and
+    returned values that bypassed _clean_value, the response would
+    contain control characters visible as '<LF>' in the UI.
+    """
+    if value is None:
+        return None
+    # Strip all AAMVA delimiter chars plus standard whitespace
+    import re
+    cleaned = re.sub(r'[\r\n\x00\x1e\x1d\t]', '', value).strip()
+    return cleaned if cleaned else None
+
+
 def _build_extracted_fields(doc: ParsedAAMVADocument) -> ExtractedFields:
     """
     Map a ParsedAAMVADocument to the public ExtractedFields response schema.
 
     Uses doc.normalized_fields so that date values are already in
     ISO 8601 (YYYY-MM-DD) format for display.
+
+    All values pass through _clean_field() as a final defensive strip
+    to ensure no control characters survive into the API response.
     """
     f = doc.normalized_fields  # plain dict[str, str] -- safe to call .get() on
 
-    # _jurisdiction and _aamva_version are injected by some parser paths;
-    # fall back gracefully when absent.
-    raw_sex = f.get("DBC", "")
+    raw_sex = _clean_field(f.get("DBC", "")) or ""
 
     return ExtractedFields(
-        license_number=f.get("DAQ"),
-        family_name=f.get("DCS"),
-        given_name=f.get("DAC"),
-        middle_name=f.get("DAD"),
-        date_of_birth=f.get("DBB"),
-        expiration_date=f.get("DBA"),
-        issue_date=f.get("DBD"),
-        address_street=f.get("DAG"),
-        address_city=f.get("DAI"),
-        address_state=f.get("DAJ"),
-        address_postal=f.get("DAK"),
+        license_number=_clean_field(f.get("DAQ")),
+        family_name=_clean_field(f.get("DCS")),
+        given_name=_clean_field(f.get("DAC")),
+        middle_name=_clean_field(f.get("DAD")),
+        date_of_birth=_clean_field(f.get("DBB")),
+        expiration_date=_clean_field(f.get("DBA")),
+        issue_date=_clean_field(f.get("DBD")),
+        address_street=_clean_field(f.get("DAG")),
+        address_city=_clean_field(f.get("DAI")),
+        address_state=_clean_field(f.get("DAJ")),
+        address_postal=_clean_field(f.get("DAK")),
         sex=SEX_MAP.get(raw_sex, raw_sex if raw_sex else None),
-        height=f.get("DAU"),
-        jurisdiction=f.get("_jurisdiction") or f.get("DAJ"),
-        country=f.get("DCG"),
+        height=_clean_field(f.get("DAU")),
+        jurisdiction=_clean_field(f.get("_jurisdiction")) or _clean_field(f.get("DAJ")),
+        country=_clean_field(f.get("DCG")),
         aamva_version=(
             int(f["_aamva_version"])
             if f.get("_aamva_version", "").isdigit()
@@ -222,13 +246,13 @@ async def _read_upload(upload: UploadFile, field_name: str) -> bytes:
 )
 async def verify_document(
     front: UploadFile = File(..., description="Front image of the DL (JPEG/PNG)"),
-    back: UploadFile = File(..., description="Back image of the DL — must contain the PDF417 barcode"),
+    back: UploadFile = File(..., description="Back image of the DL -- must contain the PDF417 barcode"),
 ) -> VerifyResponse:
     t_start = time.monotonic()
     warnings: list[str] = []
     pipeline_stage = "upload"
 
-    # ── 1. Read uploads ───────────────────────────────────────────────
+    # -- 1. Read uploads --
     front_bytes = await _read_upload(front, "front")
     back_bytes = await _read_upload(back, "back")
 
@@ -240,7 +264,7 @@ async def verify_document(
         back_content_type=back.content_type,
     )
 
-    # ── 2. Image quality gate ───────────────────────────────────────
+    # -- 2. Image quality gate --
     pipeline_stage = "image_quality"
     image_quality_passed = True
 
@@ -276,7 +300,7 @@ async def verify_document(
         warnings.append(f"Image quality check could not complete: {exc}")
         image_quality_passed = False
 
-    # ── 3. Barcode detection ───────────────────────────────────────
+    # -- 3. Barcode detection --
     pipeline_stage = "barcode_detection"
 
     try:
@@ -304,7 +328,7 @@ async def verify_document(
             detail="Barcode detection failed unexpectedly. Please try again.",
         ) from exc
 
-    # ── 4. AAMVA parse ────────────────────────────────────────────
+    # -- 4. AAMVA parse --
     pipeline_stage = "aamva_parse"
 
     try:
@@ -326,11 +350,9 @@ async def verify_document(
             warnings=warnings + [f"AAMVA parse error: {exc}"],
         )
 
-    # ── 5. Cross-validation checks ─────────────────────────────────
+    # -- 5. Cross-validation checks --
     pipeline_stage = "cross_validation"
 
-    # Validators receive the full ParsedAAMVADocument -- they access
-    # whichever of .raw_fields / .normalized_fields they need internally.
     validation_results = [
         check_syntax_conformance(doc),
         check_date_logic(doc),
@@ -340,11 +362,11 @@ async def verify_document(
         check_age_derived_fields(doc),
     ]
 
-    # ── 6. Risk scoring ──────────────────────────────────────────
+    # -- 6. Risk scoring --
     pipeline_stage = "risk_scoring"
     score_result = score(validation_results)
 
-    # ── 7. Assemble response ──────────────────────────────────────
+    # -- 7. Assemble response --
     elapsed = int((time.monotonic() - t_start) * 1000)
 
     response = VerifyResponse(
