@@ -707,7 +707,7 @@ function buildStepper(){
     const item = document.createElement('div');
     item.className = 'step-item' + (n===currentStep?' active':(n<currentStep?' done':''));
     item.setAttribute('role','listitem');
-    item.innerHTML = `<div class="step-num">${n<currentStep?'✓':n}</div><div class="step-label">${s.label}</div>`;
+    item.innerHTML = `<div class="step-num">${n<currentStep?'&#10003;':n}</div><div class="step-label">${s.label}</div>`;
     el.appendChild(item);
     if(i < STEPS.length - 1){
       const conn = document.createElement('div');
@@ -756,7 +756,7 @@ function activatePip(id){
     if(!el)return;
     el.classList.remove('active','done','fail');
     dot.innerHTML='';
-    if(i<idx){el.classList.add('done');dot.innerHTML='✓';}
+    if(i<idx){el.classList.add('done');dot.innerHTML='&#10003;';}
     else if(i===idx){el.classList.add('active');}
   });
   const s=STAGES[idx];
@@ -771,8 +771,8 @@ function finalizePip(reachedId, failed){
     if(!el)return;
     el.classList.remove('active','done','fail');
     dot.innerHTML='';
-    if(i<idx){el.classList.add('done');dot.innerHTML='✓';}
-    else if(i===idx){if(failed){el.classList.add('fail');dot.innerHTML='✗';}else{el.classList.add('done');dot.innerHTML='✓';}}
+    if(i<idx){el.classList.add('done');dot.innerHTML='&#10003;';}
+    else if(i===idx){if(failed){el.classList.add('fail');dot.innerHTML='&#10007;';}else{el.classList.add('done');dot.innerHTML='&#10003;';}}
   });
 }
 
@@ -790,7 +790,7 @@ function syncButton(){
 
 function setFile(side, file){
   if(!file)return;
-  if(!file.type.startsWith('image/)){showError('Please upload an image file (JPEG, PNG, or WebP).');return;}
+  if(!file.type.startsWith('image/')){showError('Please upload an image file (JPEG, PNG, or WebP).');return;}
   if(file.size>10*1024*1024){showError('File exceeds 10 MB limit.');return;}
   state[side]=file;
   const S=cap(side);
@@ -862,7 +862,7 @@ document.getElementById('btnVerify').addEventListener('click', async ()=>{
       goToStep(1); showError(msg); return;
     }
     state.lastResponse=data;
-    await new Promise(r=>setTimeout(r,600)); // brief hold so user sees final pipeline state
+    await new Promise(r=>setTimeout(r,600));
     renderResults(data);
     goToStep(3);
   }catch(err){
@@ -893,7 +893,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')jsonModal.classList.
 function copyJson(btn){
   if(!state.lastResponse)return;
   navigator.clipboard.writeText(JSON.stringify(state.lastResponse,null,2)).then(()=>{
-    const orig=btn.innerHTML; btn.classList.add('copied'); btn.innerHTML='✓ Copied';
+    const orig=btn.innerHTML; btn.classList.add('copied'); btn.innerHTML='&#10003; Copied';
     setTimeout(()=>{btn.classList.remove('copied');btn.innerHTML=orig;},1800);
   });
 }
@@ -918,9 +918,9 @@ function renderResults(d){
 
   const card=document.getElementById('verdictCard');
   card.className='verdict-card '+rec.toLowerCase();
-  const icons={PASS:'✓',REVIEW:'⚠',REJECT:'✗',UNKNOWN:'?'};
+  const icons={PASS:'&#10003;',REVIEW:'&#9888;',REJECT:'&#10007;',UNKNOWN:'?'};
   const subs={PASS:'All AAMVA checks passed.',REVIEW:'One or more checks require manual review.',REJECT:'Document failed a hard validation check.',UNKNOWN:'Unexpected result.'};
-  document.getElementById('verdictIcon').textContent=icons[rec]||'?';
+  document.getElementById('verdictIcon').innerHTML=icons[rec]||'?';
   document.getElementById('verdictLabel').textContent=rec;
   document.getElementById('verdictSub').textContent=subs[rec]||'';
   renderGauge(risk);
@@ -928,10 +928,10 @@ function renderResults(d){
   // Meta
   const metaRow=document.getElementById('metaRow');
   metaRow.innerHTML='';
-  [['📷','Barcode',d.barcode_detected?'Detected':'Not found'],
-   ['🖼️','Quality',d.image_quality_passed?'Passed':'Failed'],
-   ['⏱','Time',(d.processing_ms||0)+' ms'],
-   ['🔍','Stage',d.pipeline_stage_reached||'—']
+  [['&#128247;','Barcode',d.barcode_detected?'Detected':'Not found'],
+   ['&#128444;','Quality',d.image_quality_passed?'Passed':'Failed'],
+   ['&#9201;','Time',(d.processing_ms||0)+' ms'],
+   ['&#128269;','Stage',d.pipeline_stage_reached||'—']
   ].forEach(([icon,label,val])=>{
     const p=document.createElement('div'); p.className='meta-pill';
     p.innerHTML=`${icon} ${label}: <strong>${val}</strong>`;
@@ -941,8 +941,8 @@ function renderResults(d){
   // Flags
   const flagsRow=document.getElementById('flagsRow');
   flagsRow.innerHTML='';
-  (d.hard_fails||[]).forEach(f=>{const c=document.createElement('span');c.className='flag-chip fail';c.innerHTML='✗ '+f;flagsRow.appendChild(c);});
-  (d.hard_warns||[]).forEach(w=>{const c=document.createElement('span');c.className='flag-chip warn';c.innerHTML='⚠ '+w;flagsRow.appendChild(c);});
+  (d.hard_fails||[]).forEach(f=>{const c=document.createElement('span');c.className='flag-chip fail';c.innerHTML='&#10007; '+f;flagsRow.appendChild(c);});
+  (d.hard_warns||[]).forEach(w=>{const c=document.createElement('span');c.className='flag-chip warn';c.innerHTML='&#9888; '+w;flagsRow.appendChild(c);});
 
   // Checks
   const checksList=document.getElementById('checksList');
