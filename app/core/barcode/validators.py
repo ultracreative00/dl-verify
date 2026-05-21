@@ -55,7 +55,7 @@ class ValidationResult:
 
     Attributes
     ----------
-    check    : identifier matching the function name (e.g. "check_date_logic")
+    check    : identifier matching the function name
     passed   : True iff severity is "pass"
     severity : "pass" | "warn" | "fail"
     details  : human-readable list of findings (empty on clean pass)
@@ -70,7 +70,6 @@ class ValidationResult:
 
 def _result(check: str, details: List[str], signals: Dict) -> ValidationResult:
     """Build a ValidationResult; severity derived from non-empty details list."""
-    # Convention: details entries prefixed with [FAIL] or [WARN]
     has_fail = any(d.startswith("[FAIL]") for d in details)
     has_warn = any(d.startswith("[WARN]") for d in details)
     if has_fail:
@@ -94,6 +93,8 @@ def _result(check: str, details: List[str], signals: Dict) -> ValidationResult:
 
 def _parse_iso_date(value: str, field_id: str) -> Optional[date]:
     """Parse YYYY-MM-DD string to date. Returns None if unparseable."""
+    if not value:
+        return None
     try:
         return datetime.strptime(value.strip(), "%Y-%m-%d").date()
     except ValueError:
@@ -103,7 +104,7 @@ def _parse_iso_date(value: str, field_id: str) -> Optional[date]:
 def _shannon_entropy(s: str) -> float:
     """
     Compute Shannon entropy in bits for a string.
-    Used to detect trivially low-entropy DCF values (e.g. all-same char, all zeros).
+    Used to detect trivially low-entropy DCF values.
     """
     if not s:
         return 0.0
@@ -114,6 +115,14 @@ def _shannon_entropy(s: str) -> float:
         for c in counts.values()
         if c > 0
     )
+
+
+def _severity(details: List[str]) -> str:
+    if any(d.startswith("[FAIL]") for d in details):
+        return "fail"
+    if any(d.startswith("[WARN]") for d in details):
+        return "warn"
+    return "pass"
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +139,11 @@ def check_syntax_conformance(doc: ParsedAAMVADocument) -> ValidationResult:
       - DCG (Country) is one of {"USA", "CAN"}
       - DAK (Postal code) is 5 or 9 digits (US) or 6 alphanumeric (CA)
       - All mandatory fields are present
+
+    NOTE: All value comparisons use value.strip() as a defensive measure.
+    After the parser.py control-char fix, raw_fields values will already
+    be clean — but .strip() makes this validator resilient to any future
+    upstream changes or test fixtures that haven't been updated.
     """
     CHECK = "check_syntax_conformance"
     details: List[str] = []
@@ -150,21 +164,24 @@ def check_syntax_conformance(doc: ParsedAAMVADocument) -> ValidationResult:
     # --- Field-level constraints ---
     for fid, value in raw.items():
         meta = AAMVA_FIELDS.get(fid)
+        clean_value = value.strip()  # defensive strip
 
         # Max length check (applies to all known fields)
-        if meta and len(value) > meta["max_len"]:
+        if meta and len(clean_value) > meta["max_len"]:
             details.append(
-                f"[FAIL] {fid} value length {len(value)} exceeds max {meta['max_len']}: "
-                f"'{value[:30]}'"
+                f"[FAIL] {fid} value length {len(clean_value)} exceeds max {meta['max_len']}: "
+                f"'{clean_value[:30]}'"
             )
-            signals[f"{fid}_length_violation"] = len(value)
+            signals[f"{fid}_length_violation"] = len(clean_value)
 
     # --- Specific field format checks ---
 
     # Sex code
-    if "DBC" in raw and raw["DBC"] not in {"1", "2", "9"}:
-        details.append(f"[FAIL] DBC (Sex) has invalid value: '{raw['DBC']}' (expected 1, 2, or 9)")
-        signals["dbc_invalid"] = raw["DBC"]
+    if "DBC" in raw:
+        dbc = raw["DBC"].strip()
+        if dbc not in {"1", "2", "9"}:
+            details.append(f"[FAIL] DBC (Sex) has invalid value: '{dbc}' (expected 1, 2, or 9)")
+            signals["dbc_invalid"] = dbc
 
     # Jurisdiction code: exactly 2 uppercase letters
     if "DAJ" in raw:
@@ -174,44 +191,39 @@ def check_syntax_conformance(doc: ParsedAAMVADocument) -> ValidationResult:
             signals["daj_invalid"] = daj
 
     # Country: USA or CAN
-    if "DCG" in raw and raw["DCG"].strip().upper() not in {"USA", "CAN"}:
-        details.append(f"[WARN] DCG (Country) unexpected value: '{raw['DCG']}'")
-        signals["dcg_unexpected"] = raw["DCG"]
+    if "DCG" in raw:
+        dcg = raw["DCG"].strip().upper()
+        if dcg not in {"USA", "CAN"}:
+            details.append(f"[WARN] DCG (Country) unexpected value: '{dcg}'")
+            signals["dcg_unexpected"] = dcg
 
     # Postal code: US = 5 digits or 9 digits (ZIP+4 concatenated); CA = 6 alphanumeric
     if "DAK" in raw:
         dak = raw["DAK"].strip().replace("-", "").replace(" ", "")
         country = raw.get("DCG", "USA").strip().upper()
         if country == "USA" and not re.fullmatch(r"\d{5,9}", dak):
-            details.append(f"[WARN] DAK (Postal Code) unexpected US format: '{raw['DAK']}'")
-            signals["dak_format_warn"] = raw["DAK"]
+            details.append(f"[WARN] DAK (Postal Code) unexpected US format: '{raw['DAK'].strip()}'")
+            signals["dak_format_warn"] = raw["DAK"].strip()
         elif country == "CAN" and not re.fullmatch(r"[A-Z0-9]{6}", dak.upper()):
-            details.append(f"[WARN] DAK (Postal Code) unexpected CA format: '{raw['DAK']}'")
-            signals["dak_format_warn"] = raw["DAK"]
+            details.append(f"[WARN] DAK (Postal Code) unexpected CA format: '{raw['DAK'].strip()}'")
+            signals["dak_format_warn"] = raw["DAK"].strip()
 
-    # Date fields: raw value must be 8 digits (MMDDCCYY) before normalization
+    # Date fields: raw value must be 8 digits (MMDDCCYY)
     date_field_ids = {"DBB", "DBA", "DBD", "DDH", "DDI", "DDJ"}
     for fid in date_field_ids:
         if fid in raw:
-            if not re.fullmatch(r"\d{8}", raw[fid].strip()):
+            raw_date = raw[fid].strip()
+            if not re.fullmatch(r"\d{8}", raw_date):
                 details.append(
-                    f"[FAIL] {fid} date value is not 8 digits: '{raw[fid]}'"
+                    f"[FAIL] {fid} date value is not 8 digits: '{raw_date}'"
                 )
-                signals[f"{fid}_format_invalid"] = raw[fid]
+                signals[f"{fid}_format_invalid"] = raw_date
 
     signals["mandatory_fields_present"] = len(missing_mandatory) == 0
     signals["total_fields_found"] = len(raw)
 
     logger.info(CHECK, severity=_severity(details), field_count=len(raw))
     return _result(CHECK, details, signals)
-
-
-def _severity(details: List[str]) -> str:
-    if any(d.startswith("[FAIL]") for d in details):
-        return "fail"
-    if any(d.startswith("[WARN]") for d in details):
-        return "warn"
-    return "pass"
 
 
 # ---------------------------------------------------------------------------
@@ -224,11 +236,11 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
 
     Checks:
       - DBB, DBA, DBD are parseable as valid calendar dates
-      - No date has month > 12 or day > 31 (impossible calendar values)
-      - DBD (issue) < DBA (expiry)  — issue must precede expiry
-      - DBB (DOB) < DBD (issue)     — person must exist before card issued
-      - DBA must not already be expired (past today)
-      - DBD must not be in the future (a future issue date is suspicious)
+      - DBD (issue) < DBA (expiry)
+      - DBB (DOB) < DBD (issue)
+      - DBA must not already be expired
+      - DBD must not be in the future
+      - DOB implies a plausible age at time of issue (15–120 years)
     """
     CHECK = "check_date_logic"
     details: List[str] = []
@@ -237,10 +249,14 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
     today = date.today()
 
     # Helper: get parsed date or record failure
+    parse_results: Dict[str, Optional[date]] = {}
+
     def get_date(fid: str) -> Optional[date]:
         if fid not in norm:
+            parse_results[fid] = None
             return None
         d = _parse_iso_date(norm[fid], fid)
+        parse_results[fid] = d
         if d is None:
             details.append(
                 f"[FAIL] {fid} cannot be parsed as a valid date: '{norm[fid]}' "
@@ -252,6 +268,17 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
     dob = get_date("DBB")
     issue = get_date("DBD")
     expiry = get_date("DBA")
+
+    # dates_parseable = True only when ALL three present fields parsed successfully
+    # Bug fix: the previous `if d is not None or True` short-circuited to True always.
+    # Now we explicitly check each required field.
+    required_date_fields = ["DBB", "DBD", "DBA"]
+    dates_parseable = all(
+        parse_results.get(fid) is not None
+        for fid in required_date_fields
+        if fid in norm  # only check fields that were present in the barcode
+    )
+    signals["dates_parseable"] = dates_parseable
 
     # Ordering checks (only if all three parsed successfully)
     if dob and issue and expiry:
@@ -293,12 +320,6 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
             )
             signals["age_at_issue_implausible"] = round(age_at_issue, 1)
 
-    signals["dates_parseable"] = all([
-        d is not None
-        for d in [dob, issue, expiry]
-        if d is not None or True  # only check fields that were present
-    ])
-
     logger.info(CHECK, severity=_severity(details))
     return _result(CHECK, details, signals)
 
@@ -313,9 +334,6 @@ def check_expiry_window(doc: ParsedAAMVADocument) -> ValidationResult:
 
     Policy source: jurisdiction_config.EXPIRY_WINDOWS
     Tolerance: ±EXPIRY_TOLERANCE_YEARS (default 1 year)
-
-    If the jurisdiction is not in EXPIRY_WINDOWS, the check is skipped
-    with a WARN to flag unknown jurisdiction rather than a false FAIL.
     """
     CHECK = "check_expiry_window"
     details: List[str] = []
@@ -379,12 +397,6 @@ def check_jurisdiction_fields(doc: ParsedAAMVADocument) -> ValidationResult:
     verify:
       - All required Z-prefixed fields are present
       - Field values match the expected regex pattern where defined
-
-    For states not in the rules table, the check emits a WARN
-    ("no ZXX rules on file") rather than a false FAIL.
-
-    jurisdiction_fields are sourced from doc.jurisdiction_fields
-    (Z-prefix secondary index built by the parser).
     """
     CHECK = "check_jurisdiction_fields"
     details: List[str] = []
@@ -397,12 +409,10 @@ def check_jurisdiction_fields(doc: ParsedAAMVADocument) -> ValidationResult:
     rules = JURISDICTION_ZXX_RULES.get(jurisdiction)
     if rules is None:
         if doc.jurisdiction_fields:
-            # ZXX fields present but no rules — record them, no hard fail
             details.append(
                 f"[WARN] No ZXX validation rules on file for '{jurisdiction}'; "
                 f"found fields: {list(doc.jurisdiction_fields.keys())}"
             )
-        # No ZXX fields and no rules — normal for less-common states
         signals["rules_available"] = False
         return _result(CHECK, details, signals)
 
@@ -441,18 +451,8 @@ def check_dcf_entropy(doc: ParsedAAMVADocument) -> ValidationResult:
     """
     Document Discriminator (DCF) validation.
 
-    Two-stage check:
-      Stage 1 (pattern match): If the jurisdiction has an entry in DCF_PATTERNS,
-        the DCF value must match that regex exactly.  A mismatch is a hard FAIL.
-
-      Stage 2 (entropy fallback): If no pattern is defined for the jurisdiction,
-        compute Shannon entropy of the DCF string.  Values below
-        DCF_MIN_ENTROPY_BITS suggest a fabricated or trivially-incremented
-        discriminator (e.g. "0000000000000000000000000").
-
-    DCF is a 25-char alphanumeric.  Legitimate values follow state-specific
-    formats that are not published by AAMVA — entropy analysis is a
-    probabilistic signal, not a deterministic check.
+    Stage 1: pattern match (if jurisdiction has a known pattern in DCF_PATTERNS)
+    Stage 2: entropy fallback (Shannon entropy < DCF_MIN_ENTROPY_BITS is suspicious)
     """
     CHECK = "check_dcf_entropy"
     details: List[str] = []
@@ -474,8 +474,7 @@ def check_dcf_entropy(doc: ParsedAAMVADocument) -> ValidationResult:
     if pattern is not None:
         if re.fullmatch(pattern, dcf):
             signals["dcf_pattern_match"] = True
-            logger.info(CHECK, stage="pattern_match", jurisdiction=jurisdiction,
-                        passed=True)
+            logger.info(CHECK, stage="pattern_match", jurisdiction=jurisdiction, passed=True)
             return _result(CHECK, details, signals)
         else:
             details.append(
@@ -483,26 +482,24 @@ def check_dcf_entropy(doc: ParsedAAMVADocument) -> ValidationResult:
                 f"'{jurisdiction}': {pattern}"
             )
             signals["dcf_pattern_match"] = False
-            logger.info(CHECK, stage="pattern_match", jurisdiction=jurisdiction,
-                        passed=False)
+            logger.info(CHECK, stage="pattern_match", jurisdiction=jurisdiction, passed=False)
             return _result(CHECK, details, signals)
 
-    # Stage 2: entropy analysis (no pattern on file)
+    # Stage 2: entropy analysis
     entropy = _shannon_entropy(dcf)
     signals["dcf_entropy_bits"] = round(entropy, 3)
-    signals["dcf_pattern_match"] = None  # not applicable
+    signals["dcf_pattern_match"] = None
 
     if entropy < DCF_MIN_ENTROPY_BITS:
         details.append(
             f"[WARN] DCF entropy {entropy:.3f} bits is below threshold "
-            f"{DCF_MIN_ENTROPY_BITS} — possible fabricated or trivial value: '{dcf}'"
+            f"{DCF_MIN_ENTROPY_BITS} — possible fabricated value: '{dcf}'"
         )
         signals["dcf_low_entropy"] = True
     else:
         signals["dcf_low_entropy"] = False
 
-    logger.info(CHECK, stage="entropy", jurisdiction=jurisdiction,
-                entropy=round(entropy, 3))
+    logger.info(CHECK, stage="entropy", jurisdiction=jurisdiction, entropy=round(entropy, 3))
     return _result(CHECK, details, signals)
 
 
@@ -516,17 +513,11 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
     age-gating fields DDH / DDI / DDJ.
 
     AAMVA definitions:
-      DDH : date holder turns 18  → must equal DBB + 18 years
-      DDI : date holder turns 19  → must equal DBB + 19 years
-      DDJ : date holder turns 21  → must equal DBB + 21 years
+      DDH : date holder turns 18  (DBB + 18 years)
+      DDI : date holder turns 19  (DBB + 19 years)
+      DDJ : date holder turns 21  (DBB + 21 years)
 
-    These fields are commonly mishandled on synthetic IDs:
-    attackers change DBB without recalculating DDH/DDI/DDJ, or
-    include these fields for DOBs where the holder is already well
-    past the relevant age thresholds.
-
-    Tolerance: ±2 days to account for leap-year birthday arithmetic
-    used by different DMV systems.
+    Tolerance: ±2 days for leap-year arithmetic differences.
     """
     CHECK = "check_age_derived_fields"
     details: List[str] = []
@@ -543,7 +534,7 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
 
     for fid, years in AGE_FIELDS.items():
         if fid not in norm:
-            continue  # Optional fields; absence is fine
+            continue
 
         declared = _parse_iso_date(norm[fid], fid)
         if not declared:
@@ -553,11 +544,9 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
             signals[f"{fid}_parse_fail"] = norm[fid]
             continue
 
-        # Expected date: DOB + N years (approximate — use 365.25*N days)
         expected_days = int(years * 365.25)
         expected = dob + timedelta(days=expected_days)
         delta_days = abs((declared - expected).days)
-
         signals[f"{fid}_delta_days"] = delta_days
 
         if delta_days > TOLERANCE_DAYS:
@@ -570,8 +559,7 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
         else:
             signals[f"{fid}_inconsistent"] = False
 
-    # Additional plausibility: if DDJ is present but holder is already 21+,
-    # the field should not exist (some issuers remove it on renewal)
+    # If DDJ present but holder is already 21+, field should not exist
     today = date.today()
     current_age = (today - dob).days / 365.25
     if "DDJ" in norm and current_age >= 21:
@@ -581,7 +569,7 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
         )
         signals["ddj_stale"] = True
 
-    logger.info(CHECK, dob=str(dob), age_fields_checked=list(
+    logger.info(CHECK, dob=str(dob), age_fields_checked=[
         k for k in AGE_FIELDS if k in norm
-    ))
+    ])
     return _result(CHECK, details, signals)

@@ -10,13 +10,11 @@ Structure
 EXPIRY_WINDOWS : Dict[str, List[int]]
     Mapping of 2-letter jurisdiction code -> list of valid
     issue-to-expiry spans in years.
-    e.g. California issues 5-year and 8-year licenses -> [5, 8]
     A tolerance of +/-1 year is applied by check_expiry_window().
 
 DCF_PATTERNS : Dict[str, str]
     Mapping of jurisdiction code -> regex pattern for the
-    Document Discriminator (DCF) field.  None means "no known pattern,
-    skip entropy check for this state".
+    Document Discriminator (DCF) field. None = skip pattern check.
 
 JURISDICTION_ZXX_RULES : Dict[str, Dict]
     Per-state rules for Z-prefixed jurisdiction fields:
@@ -33,7 +31,7 @@ from typing import Dict, List, Optional
 EXPIRY_WINDOWS: Dict[str, List[int]] = {
     "AL": [4, 8],
     "AK": [5],
-    "AZ": [5, 12],   # AZ offers 12-year for age 65+
+    "AZ": [5, 12],
     "AR": [4, 8],
     "CA": [5],
     "CO": [5],
@@ -88,7 +86,7 @@ EXPIRY_WINDOWS: Dict[str, List[int]] = {
     "VI": [4],
     "MP": [4],
     "AS": [4],
-    # Canada (for DCG=CAN cards)
+    # Canada
     "AB": [5],
     "BC": [5],
     "MB": [5],
@@ -107,7 +105,7 @@ EXPIRY_TOLERANCE_YEARS: int = 1
 
 # ---------------------------------------------------------------------------
 # DCF (Document Discriminator) known patterns per jurisdiction
-# None = no validated pattern for this state (check skipped)
+# None = no validated pattern for this state (falls through to entropy check)
 # ---------------------------------------------------------------------------
 DCF_PATTERNS: Dict[str, Optional[str]] = {
     # California: 2 uppercase letters + up to 21 alphanumeric chars
@@ -118,7 +116,7 @@ DCF_PATTERNS: Dict[str, Optional[str]] = {
     "FL": r"^FL[A-Z0-9]{10,20}$",
     # New York: purely numeric, 10-15 digits
     "NY": r"^\d{10,15}$",
-    # Illinois: starts with alphanumeric, 12-18 chars
+    # Illinois: alphanumeric, 12-18 chars
     "IL": r"^[A-Z0-9]{12,18}$",
     # Pennsylvania: all-numeric 10-14 digits
     "PA": r"^\d{10,14}$",
@@ -130,6 +128,9 @@ DCF_PATTERNS: Dict[str, Optional[str]] = {
     "MI": r"^[A-Z0-9]{11,15}$",
     # Washington: alphanumeric 12-18
     "WA": r"^[A-Z0-9]{12,18}$",
+    # North Carolina: alphanumeric 10-20 chars
+    # NC uses a mixed alphanumeric discriminator with no fixed prefix
+    "NC": r"^[A-Z0-9]{10,20}$",
     # All others: None (skip pattern check, fall through to entropy check)
 }
 
@@ -158,7 +159,7 @@ JURISDICTION_ZXX_RULES: Dict[str, Dict] = {
     "FL": {
         "required": ["ZFZ"],
         "patterns": {
-            "ZFZ": r"^\d{2}[A-Z0-9]{0,18}$",  # Florida encodes county code in first 2 digits
+            "ZFZ": r"^\d{2}[A-Z0-9]{0,18}$",
         },
     },
     "NY": {
@@ -175,6 +176,20 @@ JURISDICTION_ZXX_RULES: Dict[str, Dict] = {
         "required": ["ZVA"],
         "patterns": {
             "ZVA": r"^[A-Z0-9]{1,20}$",
+        },
+    },
+    # North Carolina: ZN0, ZNZ, ZNB, ZNC, ZND are the five standard
+    # NC-specific fields confirmed present in NC barcode specimens.
+    # ZN0 is the NC-specific document number suffix/check element.
+    # Patterns are permissive alphanumeric — NC does not publish specs.
+    "NC": {
+        "required": ["ZN0"],
+        "patterns": {
+            "ZN0": r"^[A-Z0-9]{1,25}$",
+            "ZNZ": r"^[A-Z0-9]{1,25}$",
+            "ZNB": r"^[A-Z0-9]{1,25}$",
+            "ZNC": r"^[A-Z0-9]{1,25}$",
+            "ZND": r"^[A-Z0-9]{1,25}$",
         },
     },
     # States where ZXX fields are optional / unvalidated
