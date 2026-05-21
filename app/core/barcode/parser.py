@@ -11,10 +11,11 @@ Barcode format:
   DL<RecordLength><ElementId><Value>\n...
 
 Parsing strategy:
-  1. Try aamva-barcode-library (handles version negotiation cleanly)
-  2. Fall back to hand-rolled regex/line parser for resilience
-  3. Normalize all date fields from MMDDCCYY → YYYY-MM-DD (ISO 8601)
-  4. Collect all Z-prefixed jurisdiction-specific fields into a
+  1. Normalize raw payload (strip NUL bytes / control-char prefix artefacts)
+  2. Try aamva-barcode-library (handles version negotiation cleanly)
+  3. Fall back to hand-rolled regex/line parser for resilience
+  4. Normalize all date fields from MMDDCCYY → YYYY-MM-DD (ISO 8601)
+  5. Collect all Z-prefixed jurisdiction-specific fields into a
      dedicated bucket (jurisdiction_fields)
 
 Public API:
@@ -32,8 +33,6 @@ from app.utils.logger import logger
 
 # ---------------------------------------------------------------------------
 # AAMVA field catalogue
-# Used for validation metadata; ZXX fields are open-ended and handled
-# separately in _extract_zxx_fields()
 # ---------------------------------------------------------------------------
 AAMVA_FIELDS: Dict[str, Dict] = {
     # Mandatory
@@ -103,6 +102,50 @@ class ParsedAAMVADocument:
     normalized_fields: Dict[str, str] = field(default_factory=dict)
     jurisdiction_fields: Dict[str, str] = field(default_factory=dict)
     parse_method: str = "fallback"
+
+
+# ---------------------------------------------------------------------------
+# Payload normalisation
+# ---------------------------------------------------------------------------
+
+def _normalize_payload(raw: str) -> str:
+    """
+    Strip artefacts that barcode decoders (zxingcpp, pyzbar) sometimes
+    prepend or append to the AAMVA payload:
+
+    • Leading/trailing ASCII whitespace
+    • NUL bytes (\x00) — common when a PDF417 reader pads the output
+    • Non-printable bytes before the first recognised AAMVA marker
+      ('@', 'ANSI', or a 3-char element ID like 'DAQ')
+
+    The ORIGINAL raw string is still passed to the sub-parsers so that
+    subfile byte-offsets remain intact; this normalised copy is used ONLY
+    for the header sanity check.
+    """
+    # Remove null bytes and strip surrounding whitespace
+    cleaned = raw.replace("\x00", "").strip()
+    return cleaned
+
+
+def _looks_like_aamva(text: str) -> bool:
+    """
+    Return True if *text* contains at least one canonical AAMVA marker.
+
+    Accepts any of:
+      '@'    — the AAMVA file-separator character that opens every compliant
+               barcode (may be preceded by NUL bytes on some readers)
+      'ANSI' — the issuer identification prefix in the AAMVA header
+      'DAQ'  — the mandatory Customer ID element, present in every DL barcode
+      'AAMVA'— alternative header used by some older state encodings
+      'DL'   — subfile designator; present in every AAMVA DL record
+
+    Requiring ALL three was too strict — real payloads with encoding
+    artefacts can fail one or two of these checks while still being valid.
+    Requiring ANY ONE is permissive enough to handle edge cases while still
+    rejecting clearly non-AAMVA binary blobs.
+    """
+    markers = ("@", "ANSI", "DAQ", "AAMVA", "DL")
+    return any(m in text for m in markers)
 
 
 # ---------------------------------------------------------------------------
@@ -251,10 +294,21 @@ def parse_aamva(raw_barcode: str) -> ParsedAAMVADocument:
     if not raw_barcode or len(raw_barcode) < 20:
         raise ValueError("Barcode payload too short to be a valid AAMVA document")
 
-    if "@" not in raw_barcode and "ANSI" not in raw_barcode and "DAQ" not in raw_barcode:
+    # Normalise for the header check only — parsers still receive the original
+    cleaned = _normalize_payload(raw_barcode)
+
+    logger.debug(
+        "aamva_header_check",
+        preview=cleaned[:120],
+        raw_len=len(raw_barcode),
+        cleaned_len=len(cleaned),
+    )
+
+    if not _looks_like_aamva(cleaned):
         raise ValueError(
             "Barcode payload does not appear to be AAMVA-formatted "
-            "(missing expected header markers '@', 'ANSI', or 'DAQ')"
+            "(missing expected header markers '@', 'ANSI', 'DAQ', 'AAMVA', or 'DL'). "
+            f"Payload preview (first 80 chars): {repr(cleaned[:80])}"
         )
 
     # --- Strategy 1: aamva-barcode-library ---
