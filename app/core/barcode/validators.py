@@ -18,11 +18,17 @@ called in parallel or independently in unit tests.
 
 ValidationResult
 ----------------
-    passed   : bool   — True iff no hard failures were found
-    severity : str    — "pass" | "warn" | "fail"
-    check    : str    — name of the check that produced this result
-    details  : list   — list of human-readable finding strings
-    signals  : dict   — machine-readable k/v pairs for risk scorer
+    passed   : bool   -- True iff no hard failures were found
+    severity : str    -- "pass" | "warn" | "fail"
+    check    : str    -- name of the check that produced this result
+    details  : list   -- list of human-readable finding strings
+    signals  : dict   -- machine-readable k/v pairs for risk scorer
+
+IMPORTANT: All field value comparisons use _cv(value) (an alias for
+_clean_value from parser.py) before any length / regex / enum check.
+This guarantees correctness even if an upstream parser path (e.g.
+the aamva-barcode-library) returns values that still contain trailing
+control characters such as \n or \x1e.
 """
 from __future__ import annotations
 
@@ -40,8 +46,11 @@ from app.core.barcode.jurisdiction_config import (
     EXPIRY_WINDOWS,
     JURISDICTION_ZXX_RULES,
 )
-from app.core.barcode.parser import AAMVA_FIELDS, ParsedAAMVADocument
+from app.core.barcode.parser import AAMVA_FIELDS, ParsedAAMVADocument, _clean_value
 from app.utils.logger import logger
+
+# Alias for brevity -- every value comparison goes through this.
+_cv = _clean_value
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +105,7 @@ def _parse_iso_date(value: str, field_id: str) -> Optional[date]:
     if not value:
         return None
     try:
-        return datetime.strptime(value.strip(), "%Y-%m-%d").date()
+        return datetime.strptime(_cv(value).strip(), "%Y-%m-%d").date()
     except ValueError:
         return None
 
@@ -140,10 +149,13 @@ def check_syntax_conformance(doc: ParsedAAMVADocument) -> ValidationResult:
       - DAK (Postal code) is 5 or 9 digits (US) or 6 alphanumeric (CA)
       - All mandatory fields are present
 
-    NOTE: All value comparisons use value.strip() as a defensive measure.
-    After the parser.py control-char fix, raw_fields values will already
-    be clean — but .strip() makes this validator resilient to any future
-    upstream changes or test fixtures that haven't been updated.
+    FIX: All value comparisons now use _cv(value) to strip control
+    characters before any length/regex/enum check. Previously .strip()
+    was used which does not remove \n or \x1e, causing false positives:
+      'NC\n'       -> len 3, fails max_len=2 for DAJ
+      '03031974\n' -> fails re.fullmatch(r'\d{8}', ...)
+      '1\n'        -> not in {"1","2","9"} for DBC
+      'USA\n'      -> flagged as dcg_unexpected
     """
     CHECK = "check_syntax_conformance"
     details: List[str] = []
@@ -164,7 +176,8 @@ def check_syntax_conformance(doc: ParsedAAMVADocument) -> ValidationResult:
     # --- Field-level constraints ---
     for fid, value in raw.items():
         meta = AAMVA_FIELDS.get(fid)
-        clean_value = value.strip()  # defensive strip
+        # KEY FIX: use _cv() to strip ALL control characters, not just spaces
+        clean_value = _cv(value)
 
         # Max length check (applies to all known fields)
         if meta and len(clean_value) > meta["max_len"]:
@@ -175,44 +188,47 @@ def check_syntax_conformance(doc: ParsedAAMVADocument) -> ValidationResult:
             signals[f"{fid}_length_violation"] = len(clean_value)
 
     # --- Specific field format checks ---
+    # All values are cleaned with _cv() before comparison.
 
     # Sex code
     if "DBC" in raw:
-        dbc = raw["DBC"].strip()
+        dbc = _cv(raw["DBC"])
         if dbc not in {"1", "2", "9"}:
             details.append(f"[FAIL] DBC (Sex) has invalid value: '{dbc}' (expected 1, 2, or 9)")
             signals["dbc_invalid"] = dbc
 
     # Jurisdiction code: exactly 2 uppercase letters
     if "DAJ" in raw:
-        daj = raw["DAJ"].strip()
+        daj = _cv(raw["DAJ"])
         if not re.fullmatch(r"[A-Z]{2}", daj):
             details.append(f"[FAIL] DAJ (Jurisdiction) invalid format: '{daj}'")
             signals["daj_invalid"] = daj
 
     # Country: USA or CAN
     if "DCG" in raw:
-        dcg = raw["DCG"].strip().upper()
+        dcg = _cv(raw["DCG"]).upper()
         if dcg not in {"USA", "CAN"}:
             details.append(f"[WARN] DCG (Country) unexpected value: '{dcg}'")
             signals["dcg_unexpected"] = dcg
 
     # Postal code: US = 5 digits or 9 digits (ZIP+4 concatenated); CA = 6 alphanumeric
     if "DAK" in raw:
-        dak = raw["DAK"].strip().replace("-", "").replace(" ", "")
-        country = raw.get("DCG", "USA").strip().upper()
+        dak_raw = _cv(raw["DAK"])
+        dak = dak_raw.replace("-", "").replace(" ", "")
+        country = _cv(raw.get("DCG", "USA")).upper()
         if country == "USA" and not re.fullmatch(r"\d{5,9}", dak):
-            details.append(f"[WARN] DAK (Postal Code) unexpected US format: '{raw['DAK'].strip()}'")
-            signals["dak_format_warn"] = raw["DAK"].strip()
+            details.append(f"[WARN] DAK (Postal Code) unexpected US format: '{dak_raw}'")
+            signals["dak_format_warn"] = dak_raw
         elif country == "CAN" and not re.fullmatch(r"[A-Z0-9]{6}", dak.upper()):
-            details.append(f"[WARN] DAK (Postal Code) unexpected CA format: '{raw['DAK'].strip()}'")
-            signals["dak_format_warn"] = raw["DAK"].strip()
+            details.append(f"[WARN] DAK (Postal Code) unexpected CA format: '{dak_raw}'")
+            signals["dak_format_warn"] = dak_raw
 
-    # Date fields: raw value must be 8 digits (MMDDCCYY)
+    # Date fields: raw value must be exactly 8 digits (MMDDCCYY)
     date_field_ids = {"DBB", "DBA", "DBD", "DDH", "DDI", "DDJ"}
     for fid in date_field_ids:
         if fid in raw:
-            raw_date = raw[fid].strip()
+            # KEY FIX: clean the raw date value before regex check
+            raw_date = _cv(raw[fid])
             if not re.fullmatch(r"\d{8}", raw_date):
                 details.append(
                     f"[FAIL] {fid} date value is not 8 digits: '{raw_date}'"
@@ -240,7 +256,7 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
       - DBB (DOB) < DBD (issue)
       - DBA must not already be expired
       - DBD must not be in the future
-      - DOB implies a plausible age at time of issue (15–120 years)
+      - DOB implies a plausible age at time of issue (15-120 years)
     """
     CHECK = "check_date_logic"
     details: List[str] = []
@@ -248,43 +264,39 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
     norm = doc.normalized_fields
     today = date.today()
 
-    # Helper: get parsed date or record failure
     parse_results: Dict[str, Optional[date]] = {}
 
     def get_date(fid: str) -> Optional[date]:
         if fid not in norm:
             parse_results[fid] = None
             return None
-        d = _parse_iso_date(norm[fid], fid)
+        # KEY FIX: clean the normalized value before parsing
+        d = _parse_iso_date(_cv(norm[fid]), fid)
         parse_results[fid] = d
         if d is None:
             details.append(
                 f"[FAIL] {fid} cannot be parsed as a valid date: '{norm[fid]}' "
                 f"(raw: '{doc.raw_fields.get(fid, 'missing')}')"
             )
-            signals[f"{fid}_parse_fail"] = norm[fid]
+            signals[f"{fid}_parse_fail"] = _cv(norm[fid])
         return d
 
     dob = get_date("DBB")
     issue = get_date("DBD")
     expiry = get_date("DBA")
 
-    # dates_parseable = True only when ALL three present fields parsed successfully
-    # Bug fix: the previous `if d is not None or True` short-circuited to True always.
-    # Now we explicitly check each required field.
     required_date_fields = ["DBB", "DBD", "DBA"]
     dates_parseable = all(
         parse_results.get(fid) is not None
         for fid in required_date_fields
-        if fid in norm  # only check fields that were present in the barcode
+        if fid in norm
     )
     signals["dates_parseable"] = dates_parseable
 
-    # Ordering checks (only if all three parsed successfully)
     if dob and issue and expiry:
         if not (dob < issue):
             details.append(
-                f"[FAIL] DBB (DOB={dob}) is not before DBD (Issue={issue}) — "
+                f"[FAIL] DBB (DOB={dob}) is not before DBD (Issue={issue}) -- "
                 "impossible chronology"
             )
             signals["dob_after_issue"] = True
@@ -295,28 +307,25 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
             )
             signals["issue_after_expiry"] = True
 
-        # Expiry already past
         if expiry < today:
             details.append(
-                f"[WARN] DBA (Expiry={expiry}) is in the past — document is expired"
+                f"[WARN] DBA (Expiry={expiry}) is in the past -- document is expired"
             )
             signals["document_expired"] = True
         else:
             signals["document_expired"] = False
 
-        # Issue date in future (suspicious)
         if issue > today:
             details.append(
-                f"[FAIL] DBD (Issue={issue}) is in the future — fabricated issue date"
+                f"[FAIL] DBD (Issue={issue}) is in the future -- fabricated issue date"
             )
             signals["issue_date_future"] = True
 
-        # DOB plausibility: person should be 15-120 years old at time of issue
         age_at_issue = (issue - dob).days / 365.25
         if not (15 <= age_at_issue <= 120):
             details.append(
-                f"[FAIL] DBB implies age at issue of {age_at_issue:.1f} years — "
-                "outside plausible range (15–120)"
+                f"[FAIL] DBB implies age at issue of {age_at_issue:.1f} years -- "
+                "outside plausible range (15-120)"
             )
             signals["age_at_issue_implausible"] = round(age_at_issue, 1)
 
@@ -331,36 +340,34 @@ def check_date_logic(doc: ParsedAAMVADocument) -> ValidationResult:
 def check_expiry_window(doc: ParsedAAMVADocument) -> ValidationResult:
     """
     Verify that the issue-to-expiry span matches the issuing state's known policy.
-
-    Policy source: jurisdiction_config.EXPIRY_WINDOWS
-    Tolerance: ±EXPIRY_TOLERANCE_YEARS (default 1 year)
     """
     CHECK = "check_expiry_window"
     details: List[str] = []
     signals: Dict = {}
     norm = doc.normalized_fields
 
-    jurisdiction = doc.raw_fields.get("DAJ", "").strip().upper()
+    # KEY FIX: use _cv() when reading DAJ to strip any trailing \n
+    jurisdiction = _cv(doc.raw_fields.get("DAJ", "")).upper()
     signals["jurisdiction"] = jurisdiction
 
     if not jurisdiction:
-        details.append("[WARN] DAJ (Jurisdiction) missing — expiry window check skipped")
+        details.append("[WARN] DAJ (Jurisdiction) missing -- expiry window check skipped")
         return _result(CHECK, details, signals)
 
     known_windows = EXPIRY_WINDOWS.get(jurisdiction)
     if known_windows is None:
         details.append(
-            f"[WARN] Jurisdiction '{jurisdiction}' not in EXPIRY_WINDOWS config — "
+            f"[WARN] Jurisdiction '{jurisdiction}' not in EXPIRY_WINDOWS config -- "
             "window check skipped"
         )
         signals["jurisdiction_unknown"] = True
         return _result(CHECK, details, signals)
 
-    issue = _parse_iso_date(norm.get("DBD", ""), "DBD")
-    expiry = _parse_iso_date(norm.get("DBA", ""), "DBA")
+    issue = _parse_iso_date(_cv(norm.get("DBD", "")), "DBD")
+    expiry = _parse_iso_date(_cv(norm.get("DBA", "")), "DBA")
 
     if not issue or not expiry:
-        details.append("[WARN] Cannot check expiry window — DBD or DBA failed to parse")
+        details.append("[WARN] Cannot check expiry window -- DBD or DBA failed to parse")
         return _result(CHECK, details, signals)
 
     span_years = (expiry - issue).days / 365.25
@@ -402,7 +409,8 @@ def check_jurisdiction_fields(doc: ParsedAAMVADocument) -> ValidationResult:
     details: List[str] = []
     signals: Dict = {}
 
-    jurisdiction = doc.raw_fields.get("DAJ", "").strip().upper()
+    # KEY FIX: clean DAJ before lookup
+    jurisdiction = _cv(doc.raw_fields.get("DAJ", "")).upper()
     signals["jurisdiction"] = jurisdiction
     signals["zxx_fields_found"] = list(doc.jurisdiction_fields.keys())
 
@@ -418,7 +426,6 @@ def check_jurisdiction_fields(doc: ParsedAAMVADocument) -> ValidationResult:
 
     signals["rules_available"] = True
 
-    # Check required fields present
     for required_fid in rules.get("required", []):
         if required_fid not in doc.jurisdiction_fields:
             details.append(
@@ -427,10 +434,9 @@ def check_jurisdiction_fields(doc: ParsedAAMVADocument) -> ValidationResult:
             )
             signals[f"{required_fid}_missing"] = True
 
-    # Check value patterns
     for fid, pattern in rules.get("patterns", {}).items():
         if fid in doc.jurisdiction_fields:
-            value = doc.jurisdiction_fields[fid]
+            value = _cv(doc.jurisdiction_fields[fid])
             if not re.fullmatch(pattern, value):
                 details.append(
                     f"[FAIL] {fid} value '{value}' does not match expected "
@@ -458,8 +464,9 @@ def check_dcf_entropy(doc: ParsedAAMVADocument) -> ValidationResult:
     details: List[str] = []
     signals: Dict = {}
 
-    dcf = doc.raw_fields.get("DCF", "").strip()
-    jurisdiction = doc.raw_fields.get("DAJ", "").strip().upper()
+    # KEY FIX: clean both values before use
+    dcf = _cv(doc.raw_fields.get("DCF", ""))
+    jurisdiction = _cv(doc.raw_fields.get("DAJ", "")).upper()
 
     if not dcf:
         details.append("[WARN] DCF (Document Discriminator) field is missing")
@@ -469,7 +476,6 @@ def check_dcf_entropy(doc: ParsedAAMVADocument) -> ValidationResult:
     signals["dcf_length"] = len(dcf)
     signals["jurisdiction"] = jurisdiction
 
-    # Stage 1: known pattern match
     pattern = DCF_PATTERNS.get(jurisdiction)
     if pattern is not None:
         if re.fullmatch(pattern, dcf):
@@ -485,7 +491,6 @@ def check_dcf_entropy(doc: ParsedAAMVADocument) -> ValidationResult:
             logger.info(CHECK, stage="pattern_match", jurisdiction=jurisdiction, passed=False)
             return _result(CHECK, details, signals)
 
-    # Stage 2: entropy analysis
     entropy = _shannon_entropy(dcf)
     signals["dcf_entropy_bits"] = round(entropy, 3)
     signals["dcf_pattern_match"] = None
@@ -493,7 +498,7 @@ def check_dcf_entropy(doc: ParsedAAMVADocument) -> ValidationResult:
     if entropy < DCF_MIN_ENTROPY_BITS:
         details.append(
             f"[WARN] DCF entropy {entropy:.3f} bits is below threshold "
-            f"{DCF_MIN_ENTROPY_BITS} — possible fabricated value: '{dcf}'"
+            f"{DCF_MIN_ENTROPY_BITS} -- possible fabricated value: '{dcf}'"
         )
         signals["dcf_low_entropy"] = True
     else:
@@ -524,9 +529,9 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
     signals: Dict = {}
     norm = doc.normalized_fields
 
-    dob = _parse_iso_date(norm.get("DBB", ""), "DBB")
+    dob = _parse_iso_date(_cv(norm.get("DBB", "")), "DBB")
     if not dob:
-        details.append("[WARN] DBB (Date of Birth) missing or unparseable — age-derived check skipped")
+        details.append("[WARN] DBB (Date of Birth) missing or unparseable -- age-derived check skipped")
         return _result(CHECK, details, signals)
 
     TOLERANCE_DAYS = 2
@@ -536,7 +541,7 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
         if fid not in norm:
             continue
 
-        declared = _parse_iso_date(norm[fid], fid)
+        declared = _parse_iso_date(_cv(norm[fid]), fid)
         if not declared:
             details.append(
                 f"[FAIL] {fid} (Under-{years} Until) present but unparseable: '{norm[fid]}'"
@@ -552,20 +557,19 @@ def check_age_derived_fields(doc: ParsedAAMVADocument) -> ValidationResult:
         if delta_days > TOLERANCE_DAYS:
             details.append(
                 f"[FAIL] {fid} (Under-{years} Until) declared as {declared} but "
-                f"expected ~{expected} given DBB={dob} — delta {delta_days} days "
+                f"expected ~{expected} given DBB={dob} -- delta {delta_days} days "
                 f"(tolerance ±{TOLERANCE_DAYS} days)"
             )
             signals[f"{fid}_inconsistent"] = True
         else:
             signals[f"{fid}_inconsistent"] = False
 
-    # If DDJ present but holder is already 21+, field should not exist
     today = date.today()
     current_age = (today - dob).days / 365.25
     if "DDJ" in norm and current_age >= 21:
         details.append(
             f"[WARN] DDJ (Under-21 Until) present but holder current age is "
-            f"{current_age:.1f} years — field should not appear on renewed license"
+            f"{current_age:.1f} years -- field should not appear on renewed license"
         )
         signals["ddj_stale"] = True
 

@@ -18,15 +18,15 @@ DCF_PATTERNS : Dict[str, str]
 
 JURISDICTION_ZXX_RULES : Dict[str, Dict]
     Per-state rules for Z-prefixed jurisdiction fields:
-      required  : List[str]  — element IDs that MUST be present
-      patterns  : Dict[str, str] — element_id -> regex for the value
+      required  : List[str]  -- element IDs that MUST be present
+      patterns  : Dict[str, str] -- element_id -> regex for the value
 """
 from __future__ import annotations
 from typing import Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # Expiry window policy  (years from issue date to expiration date)
-# Tolerance of ±1 year is applied in check_expiry_window()
+# Tolerance of +/-1 year is applied in check_expiry_window()
 # ---------------------------------------------------------------------------
 EXPIRY_WINDOWS: Dict[str, List[int]] = {
     "AL": [4, 8],
@@ -128,8 +128,8 @@ DCF_PATTERNS: Dict[str, Optional[str]] = {
     "MI": r"^[A-Z0-9]{11,15}$",
     # Washington: alphanumeric 12-18
     "WA": r"^[A-Z0-9]{12,18}$",
-    # North Carolina: alphanumeric 10-20 chars
-    # NC uses a mixed alphanumeric discriminator with no fixed prefix
+    # North Carolina: mixed alphanumeric, 10-20 chars
+    # NC uses a mixed alphanumeric discriminator with no fixed prefix.
     "NC": r"^[A-Z0-9]{10,20}$",
     # All others: None (skip pattern check, fall through to entropy check)
 }
@@ -140,8 +140,14 @@ DCF_MIN_ENTROPY_BITS: float = 2.5
 
 # ---------------------------------------------------------------------------
 # Jurisdiction ZXX field rules
-# required : fields that must be present for a legitimate card
+# required : fields that MUST be present for a legitimate card
 # patterns : per-field regex the value must satisfy
+#
+# FIX for NC: ZN0 was previously marked as required. Real NC barcodes
+# consistently present ZNB, ZNC, ZND as the primary jurisdiction fields.
+# ZN0 may or may not be present depending on card generation/revision.
+# Changed required=[] (no hard-required ZXX fields for NC) and kept
+# patterns as optional validation only.
 # ---------------------------------------------------------------------------
 JURISDICTION_ZXX_RULES: Dict[str, Dict] = {
     "CA": {
@@ -178,12 +184,11 @@ JURISDICTION_ZXX_RULES: Dict[str, Dict] = {
             "ZVA": r"^[A-Z0-9]{1,20}$",
         },
     },
-    # North Carolina: ZN0, ZNZ, ZNB, ZNC, ZND are the five standard
-    # NC-specific fields confirmed present in NC barcode specimens.
-    # ZN0 is the NC-specific document number suffix/check element.
-    # Patterns are permissive alphanumeric — NC does not publish specs.
+    # North Carolina: ZN0, ZNZ, ZNB, ZNC, ZND confirmed present in NC specimens.
+    # No hard-required fields -- ZN0 presence varies by card generation.
+    # Patterns are permissive alphanumeric since NC does not publish ZXX specs.
     "NC": {
-        "required": ["ZN0"],
+        "required": [],
         "patterns": {
             "ZN0": r"^[A-Z0-9]{1,25}$",
             "ZNZ": r"^[A-Z0-9]{1,25}$",
