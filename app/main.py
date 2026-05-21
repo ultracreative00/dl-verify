@@ -2,7 +2,7 @@
 DL Verify — FastAPI application factory
 ========================================
 Mounts all API routers, configures CORS, registers structured error
-handlers, and exposes /health and /version utility endpoints.
+handlers, and exposes /health, /version, and the static UI.
 
 Usage
 -----
@@ -20,11 +20,13 @@ from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes.verify import router as verify_router
 from app.utils.logger import logger
@@ -42,8 +44,10 @@ if _raw_origins:
 elif ENV == "development":
     ALLOWED_ORIGINS = ["*"]
 else:
-    # Production: lock down to explicit origins — operator must set ALLOWED_ORIGINS
     ALLOWED_ORIGINS = []
+
+# Resolve the ui/ directory relative to the repo root
+_UI_DIR = Path(__file__).resolve().parent.parent / "ui"
 
 # ---------------------------------------------------------------------------
 # App factory
@@ -152,5 +156,20 @@ async def version_info() -> Dict[str, str]:
 app.include_router(verify_router, prefix="/api/v1")
 
 # Final route: POST /api/v1/verify
+
+# ---------------------------------------------------------------------------
+# Static UI  —  served at /ui/
+# Mount AFTER API routes so /api/* is never shadowed.
+# ---------------------------------------------------------------------------
+
+if _UI_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")
+
+    @app.get("/", include_in_schema=False)
+    async def root_redirect() -> FileResponse:
+        """Redirect bare / to the UI."""
+        return FileResponse(str(_UI_DIR / "index.html"))
+else:
+    logger.warning("ui_dir_missing", path=str(_UI_DIR))
 
 logger.info("app_startup", version=VERSION, env=ENV, allowed_origins=ALLOWED_ORIGINS)

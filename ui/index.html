@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DL Verify — Driver's Licence Fraud Detection</title>
+<style>
+/* ── Design tokens ───────────────────────────────────────────── */
+:root,[data-theme="light"]{
+  --bg:#f7f6f2;--surface:#f9f8f5;--surface-2:#fbfbf9;
+  --border:rgba(0,0,0,.10);--divider:rgba(0,0,0,.07);
+  --text:#28251d;--muted:#7a7974;--faint:#bab9b4;
+  --primary:#01696f;--primary-h:#0c4e54;
+  --pass:#437a22;--pass-bg:#d4dfcc;
+  --warn:#d19900;--warn-bg:#f5edcc;
+  --fail:#a12c7b;--fail-bg:#e0ced7;
+  --reject:#a13544;--reject-bg:#e8d4d6;
+  --radius:0.625rem;--transition:180ms cubic-bezier(.16,1,.3,1);
+  --shadow:0 4px 16px rgba(0,0,0,.08);
+}
+[data-theme="dark"]{
+  --bg:#171614;--surface:#1c1b19;--surface-2:#201f1d;
+  --border:rgba(255,255,255,.09);--divider:rgba(255,255,255,.05);
+  --text:#cdccca;--muted:#797876;--faint:#5a5957;
+  --primary:#4f98a3;--primary-h:#227f8b;
+  --pass:#6daa45;--pass-bg:#2a3a22;
+  --warn:#e8af34;--warn-bg:#3a3020;
+  --fail:#d163a7;--fail-bg:#3a2535;
+  --reject:#dd6974;--reject-bg:#3a2025;
+  --shadow:0 4px 16px rgba(0,0,0,.35);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
+body{
+  min-height:100dvh;background:var(--bg);color:var(--text);
+  font-family:'Inter',system-ui,sans-serif;font-size:15px;line-height:1.6;
+}
+img{display:block;max-width:100%}
+a,button{transition:color var(--transition),background var(--transition),border-color var(--transition)}
+button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.app{display:grid;grid-template-rows:auto 1fr;min-height:100dvh}
+
+header{
+  background:var(--surface);border-bottom:1px solid var(--border);
+  padding:0 1.5rem;height:56px;display:flex;align-items:center;
+  justify-content:space-between;position:sticky;top:0;z-index:10;
+}
+.logo{display:flex;align-items:center;gap:.625rem;font-weight:600;font-size:15px;color:var(--text);text-decoration:none}
+.logo svg{color:var(--primary)}
+.badge{
+  font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  background:var(--primary);color:#fff;padding:2px 8px;border-radius:99px
+}
+.theme-btn{padding:6px;border-radius:6px;color:var(--muted)}
+.theme-btn:hover{background:var(--surface-2);color:var(--text)}
+
+main{padding:2rem 1.5rem;max-width:900px;margin:0 auto;width:100%}
+
+h1{font-size:1.375rem;font-weight:700;margin-bottom:.25rem}
+.subtitle{color:var(--muted);font-size:14px;margin-bottom:2rem}
+
+/* ── Upload grid ─────────────────────────────────────────────── */
+.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem}
+@media(max-width:580px){.upload-grid{grid-template-columns:1fr}}
+
+.drop-zone{
+  border:2px dashed var(--border);border-radius:var(--radius);
+  background:var(--surface);padding:1.5rem;text-align:center;
+  cursor:pointer;transition:border-color var(--transition),background var(--transition);
+  position:relative;min-height:160px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:.5rem;
+}
+.drop-zone:hover,.drop-zone.drag-over{
+  border-color:var(--primary);background:var(--surface-2)
+}
+.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.drop-icon{color:var(--muted);margin-bottom:.25rem}
+.drop-label{font-size:13px;font-weight:600;color:var(--text)}
+.drop-hint{font-size:12px;color:var(--muted)}
+.drop-zone.has-file{border-style:solid;border-color:var(--primary)}
+.drop-zone.has-file .preview-img{
+  max-height:120px;border-radius:6px;object-fit:cover;
+  margin-bottom:.5rem;box-shadow:var(--shadow)
+}
+.drop-zone .file-name{font-size:12px;color:var(--primary);font-weight:500}
+.drop-clear{
+  position:absolute;top:8px;right:8px;background:var(--surface-2);
+  border:1px solid var(--border);border-radius:99px;padding:2px 8px;
+  font-size:11px;color:var(--muted);z-index:2
+}
+.drop-clear:hover{color:var(--reject)}
+
+/* ── Button ─────────────────────────────────────────────────── */
+.btn{
+  display:inline-flex;align-items:center;gap:.5rem;padding:.625rem 1.25rem;
+  border-radius:var(--radius);font-size:14px;font-weight:600;
+  transition:background var(--transition);
+}
+.btn-primary{background:var(--primary);color:#fff}
+.btn-primary:hover{background:var(--primary-h)}
+.btn-primary:disabled{opacity:.45;cursor:not-allowed}
+.btn-full{width:100%;justify-content:center}
+
+/* ── Spinner ─────────────────────────────────────────────────── */
+@keyframes spin{to{transform:rotate(360deg)}}
+.spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+
+/* ── Results ─────────────────────────────────────────────────── */
+#results{margin-top:1.75rem}
+
+.verdict-card{
+  border-radius:var(--radius);padding:1.25rem 1.5rem;
+  display:flex;align-items:center;justify-content:space-between;
+  gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;
+}
+.verdict-card.PASS{background:var(--pass-bg);border:1px solid var(--pass)}
+.verdict-card.REVIEW{background:var(--warn-bg);border:1px solid var(--warn)}
+.verdict-card.REJECT{background:var(--reject-bg);border:1px solid var(--reject)}
+
+.verdict-left{display:flex;align-items:center;gap:.875rem}
+.verdict-icon{font-size:2rem;line-height:1}
+.verdict-title{font-size:1.125rem;font-weight:700}
+.verdict-card.PASS .verdict-title{color:var(--pass)}
+.verdict-card.REVIEW .verdict-title{color:var(--warn)}
+.verdict-card.REJECT .verdict-title{color:var(--reject)}
+.verdict-sub{font-size:13px;color:var(--muted);margin-top:2px}
+
+.score-ring{position:relative;width:72px;height:72px;flex-shrink:0}
+.score-ring svg{transform:rotate(-90deg)}
+.score-ring .track{fill:none;stroke:var(--border);stroke-width:6}
+.score-ring .bar{fill:none;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
+.score-ring .label{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;font-size:13px;font-weight:700;
+}
+.score-ring .label span{font-size:10px;font-weight:500;color:var(--muted)}
+
+/* ── Sections ───────────────────────────────────────────────── */
+.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:1rem;overflow:hidden}
+.section-head{
+  padding:.875rem 1.25rem;display:flex;align-items:center;justify-content:space-between;
+  cursor:pointer;user-select:none;border-bottom:1px solid var(--divider);
+}
+.section-head:hover{background:var(--surface-2)}
+.section-title{font-weight:600;font-size:14px;display:flex;align-items:center;gap:.5rem}
+.section-body{padding:1.25rem}
+
+/* ── Fields table ────────────────────────────────────────────── */
+.fields-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem 1.5rem}
+.field-item{}
+.field-key{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px}
+.field-val{font-size:14px;font-weight:500;color:var(--text)}
+.field-val.empty{color:var(--faint);font-style:italic}
+
+/* ── Check rows ─────────────────────────────────────────────── */
+.check-row{
+  display:flex;align-items:flex-start;gap:1rem;padding:.75rem 0;
+  border-bottom:1px solid var(--divider);
+}
+.check-row:last-child{border-bottom:none}
+.check-pill{
+  flex-shrink:0;font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.04em;padding:3px 9px;border-radius:99px;margin-top:2px;
+}
+.pill-pass{background:var(--pass-bg);color:var(--pass)}
+.pill-warn{background:var(--warn-bg);color:var(--warn)}
+.pill-fail{background:var(--fail-bg);color:var(--fail)}
+.check-name{font-size:13px;font-weight:600;margin-bottom:4px}
+.check-signals{display:flex;flex-wrap:wrap;gap:.375rem}
+.signal-chip{
+  font-size:11px;padding:2px 8px;border-radius:6px;
+  background:var(--surface-2);border:1px solid var(--border);
+  color:var(--muted);
+}
+.signal-chip.bad{background:var(--fail-bg);border-color:var(--fail);color:var(--fail)}
+.signal-chip.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+
+/* ── Warnings ───────────────────────────────────────────────── */
+.warn-list{list-style:none;display:flex;flex-direction:column;gap:.5rem}
+.warn-list li{
+  font-size:13px;padding:.5rem .875rem;border-radius:6px;
+  background:var(--warn-bg);border-left:3px solid var(--warn);color:var(--text);
+}
+
+/* ── Meta row ───────────────────────────────────────────────── */
+.meta-row{display:flex;flex-wrap:wrap;gap:.75rem 2rem;font-size:13px;color:var(--muted)}
+.meta-row strong{color:var(--text)}
+
+/* ── Error banner ───────────────────────────────────────────── */
+.error-banner{
+  background:var(--reject-bg);border:1px solid var(--reject);border-radius:var(--radius);
+  padding:1rem 1.25rem;font-size:14px;color:var(--reject);margin-bottom:1rem;
+}
+
+/* ── Chevron ─────────────────────────────────────────────────── */
+.chevron{transition:transform var(--transition);color:var(--muted)}
+.collapsed .chevron{transform:rotate(-90deg)}
+.section.collapsed .section-body{display:none}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div class="app">
+
+<!-- ── Header ─────────────────────────────────────────────────── -->
+<header>
+  <a class="logo" href="/">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-label="DL Verify">
+      <rect x="1" y="4" width="24" height="18" rx="3" stroke="currentColor" stroke-width="2"/>
+      <rect x="4" y="8" width="7" height="8" rx="1.5" fill="currentColor" opacity=".35"/>
+      <line x1="13" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+      <line x1="13" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+      <line x1="13" y1="15" x2="18" y2="15" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
+      <path d="M5 20 L9 17 L12 19 L15 15 L20 20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+    </svg>
+    DL Verify
+    <span class="badge">Sprint 1</span>
+  </a>
+  <button class="theme-btn" data-theme-toggle aria-label="Toggle theme">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────────── -->
+<main>
+  <h1>Driver's Licence Verification</h1>
+  <p class="subtitle">Upload the front and back of a US Driver's Licence to run the AAMVA fraud detection pipeline.</p>
+
+  <!-- Upload zone -->
+  <div class="upload-grid">
+    <div class="drop-zone" id="zone-front" role="button" tabindex="0" aria-label="Upload front of DL">
+      <input type="file" id="input-front" accept="image/jpeg,image/png,image/webp" aria-label="Front image">
+      <div id="preview-front">
+        <div class="drop-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="5" width="20" height="14" rx="2"/>
+            <circle cx="8" cy="11" r="2.5" fill="currentColor" opacity=".3"/>
+            <line x1="12" y1="9" x2="18" y2="9" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="12" y1="12" x2="18" y2="12" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="drop-label">Front of DL</div>
+        <div class="drop-hint">JPEG or PNG &nbsp;·&nbsp; max 10 MB</div>
+      </div>
+    </div>
+
+    <div class="drop-zone" id="zone-back" role="button" tabindex="0" aria-label="Upload back of DL">
+      <input type="file" id="input-back" accept="image/jpeg,image/png,image/webp" aria-label="Back image">
+      <div id="preview-back">
+        <div class="drop-icon">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="2" y="5" width="20" height="14" rx="2"/>
+            <rect x="4" y="9" width="16" height="2" rx="1" fill="currentColor" opacity=".2"/>
+            <rect x="4" y="13" width="10" height="1.5" rx=".75" fill="currentColor" opacity=".2"/>
+            <path d="M16 11 L20 14 M16 14 L20 11" stroke-width="1.5" stroke-linecap="round" opacity=".4"/>
+          </svg>
+        </div>
+        <div class="drop-label">Back of DL</div>
+        <div class="drop-hint">Must contain the PDF417 barcode</div>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary btn-full" id="submit-btn" disabled>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+    </svg>
+    Run Verification
+  </button>
+
+  <!-- Results -->
+  <div id="results"></div>
+</main>
+</div>
+
+<script>
+/* ── Theme toggle ─────────────────────────────────────────────── */
+(function(){
+  const btn=document.querySelector('[data-theme-toggle]');
+  const html=document.documentElement;
+  const SUN='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
+  const MOON='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  let theme=html.getAttribute('data-theme')||'dark';
+  btn.innerHTML=theme==='dark'?SUN:MOON;
+  btn.addEventListener('click',()=>{
+    theme=theme==='dark'?'light':'dark';
+    html.setAttribute('data-theme',theme);
+    btn.innerHTML=theme==='dark'?SUN:MOON;
+  });
+})();
+
+/* ── File inputs ──────────────────────────────────────────────── */
+const files={front:null,back:null};
+
+function setupZone(side){
+  const zone=document.getElementById('zone-'+side);
+  const input=document.getElementById('input-'+side);
+  const preview=document.getElementById('preview-'+side);
+
+  input.addEventListener('change',()=>handleFile(side,input.files[0]));
+
+  zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag-over')});
+  zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));
+  zone.addEventListener('drop',e=>{
+    e.preventDefault();zone.classList.remove('drag-over');
+    const f=e.dataTransfer.files[0];
+    if(f) handleFile(side,f);
+  });
+  zone.addEventListener('keydown',e=>{
+    if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click();}
+  });
+}
+
+function handleFile(side,file){
+  if(!file) return;
+  files[side]=file;
+  const zone=document.getElementById('zone-'+side);
+  const preview=document.getElementById('preview-'+side);
+  zone.classList.add('has-file');
+
+  const url=URL.createObjectURL(file);
+  const label=side==='front'?'Front of DL':'Back of DL';
+  preview.innerHTML=
+    `<img class="preview-img" src="${url}" alt="${label} preview" loading="lazy">
+     <div class="file-name">${file.name}</div>
+     <button class="drop-clear" type="button" onclick="clearFile('${side}',event)">✕ Remove</button>`;
+
+  updateSubmit();
+}
+
+function clearFile(side,e){
+  e.stopPropagation();
+  files[side]=null;
+  const zone=document.getElementById('zone-'+side);
+  zone.classList.remove('has-file');
+  document.getElementById('input-'+side).value='';
+  const label=side==='front'?'Front of DL':'Back of DL';
+  const hint=side==='front'?'JPEG or PNG &nbsp;·&nbsp; max 10 MB':'Must contain the PDF417 barcode';
+  document.getElementById('preview-'+side).innerHTML=
+    `<div class="drop-icon"></div>
+     <div class="drop-label">${label}</div>
+     <div class="drop-hint">${hint}</div>`;
+  updateSubmit();
+}
+
+function updateSubmit(){
+  document.getElementById('submit-btn').disabled=!(files.front&&files.back);
+}
+
+setupZone('front');
+setupZone('back');
+
+/* ── Submit ───────────────────────────────────────────────────── */
+document.getElementById('submit-btn').addEventListener('click', async()=>{
+  const btn=document.getElementById('submit-btn');
+  const results=document.getElementById('results');
+  btn.disabled=true;
+  btn.innerHTML='<div class="spinner"></div> Verifying…';
+  results.innerHTML='';
+
+  const fd=new FormData();
+  fd.append('front',files.front);
+  fd.append('back',files.back);
+
+  try{
+    const res=await fetch('/api/v1/verify',{method:'POST',body:fd});
+    const data=await res.json();
+    if(!res.ok) throw new Error(data.detail||`HTTP ${res.status}`);
+    renderResults(data);
+  }catch(err){
+    results.innerHTML=`<div class="error-banner">⚠ ${err.message}</div>`;
+  }finally{
+    btn.disabled=false;
+    btn.innerHTML=
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Run Verification';
+  }
+});
+
+/* ── Render ───────────────────────────────────────────────────── */
+function renderResults(d){
+  const results=document.getElementById('results');
+  let html='';
+
+  /* ── Verdict card ── */
+  const icon={PASS:'✅',REVIEW:'⚠️',REJECT:'❌'}[d.recommendation]||'🔍';
+  const scoreP=Math.round((1-d.risk_score)*100);
+  const scoreColor=d.recommendation==='PASS'?'var(--pass)':d.recommendation==='REVIEW'?'var(--warn)':'var(--reject)';
+  const circ=2*Math.PI*28;
+  const dash=circ*(1-(scoreP/100));
+
+  html+=`
+  <div class="verdict-card ${d.recommendation}">
+    <div class="verdict-left">
+      <div class="verdict-icon">${icon}</div>
+      <div>
+        <div class="verdict-title">${d.recommendation}</div>
+        <div class="verdict-sub">
+          Pipeline: <strong>${d.pipeline_stage_reached}</strong> &nbsp;·&nbsp;
+          ${d.processing_ms} ms &nbsp;·&nbsp;
+          Barcode: ${d.barcode_detected?'✓ detected':'✗ not found'}
+        </div>
+      </div>
+    </div>
+    <div class="score-ring" title="Confidence score">
+      <svg width="72" height="72" viewBox="0 0 72 72">
+        <circle class="track" cx="36" cy="36" r="28"/>
+        <circle class="bar" cx="36" cy="36" r="28"
+          stroke="${scoreColor}"
+          stroke-dasharray="${circ.toFixed(2)}"
+          stroke-dashoffset="${dash.toFixed(2)}"/>
+      </svg>
+      <div class="label">${scoreP}<span>score</span></div>
+    </div>
+  </div>`;
+
+  /* ── Hard fails / warns ── */
+  if(d.hard_fails.length||d.hard_warns.length){
+    const items=[
+      ...d.hard_fails.map(s=>`<span class="signal-chip bad">✗ ${s}</span>`),
+      ...d.hard_warns.map(s=>`<span class="signal-chip warn">⚠ ${s}</span>`),
+    ].join('');
+    html+=`
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="section-title">🚨 Override Signals</span>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="section-body"><div style="display:flex;flex-wrap:wrap;gap:.5rem">${items}</div></div>
+    </div>`;
+  }
+
+  /* ── Extracted fields ── */
+  if(d.extracted_fields){
+    const f=d.extracted_fields;
+    const fieldDefs=[
+      ['License #','license_number'],['Last Name','family_name'],['First Name','given_name'],
+      ['Middle Name','middle_name'],['Date of Birth','date_of_birth'],['Expiration','expiration_date'],
+      ['Issued','issue_date'],['Sex','sex'],['Height','height'],['Jurisdiction','jurisdiction'],
+      ['Country','country'],['AAMVA Version','aamva_version'],
+      ['Street','address_street'],['City','address_city'],['State','address_state'],['ZIP','address_postal'],
+    ];
+    const items=fieldDefs.map(([label,key])=>{
+      const val=f[key];
+      return `<div class="field-item">
+        <div class="field-key">${label}</div>
+        <div class="field-val ${val==null||val===''?'empty':''}">${val??'—'}</div>
+      </div>`;
+    }).join('');
+    html+=`
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="section-title">🪪 Extracted Document Fields</span>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="section-body"><div class="fields-grid">${items}</div></div>
+    </div>`;
+  }
+
+  /* ── Checks breakdown ── */
+  if(d.checks&&d.checks.length){
+    const rows=d.checks.map(c=>{
+      const pill=`pill-${c.severity==='pass'?'pass':c.severity==='warn'?'warn':'fail'}`;
+      const chips=Object.entries(c.signals).map(([k,v])=>{
+        const bad=v===true&&k.match(/mismatch|invalid|fail|error|missing|absent|bad|impossible|after|before_issue/);
+        const warn=v===true&&k.match(/warn|low|short|gap/);
+        return `<span class="signal-chip ${bad?'bad':warn?'warn':''}">${k}: ${v}</span>`;
+      }).join('');
+      return `<div class="check-row">
+        <span class="check-pill ${pill}">${c.severity}</span>
+        <div>
+          <div class="check-name">${c.check.replace(/_/g,' ')}</div>
+          <div class="check-signals">${chips||'<span class="signal-chip">no signals</span>'}</div>
+        </div>
+      </div>`;
+    }).join('');
+    html+=`
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="section-title">🔬 Validation Checks (${d.checks.length})</span>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="section-body">${rows}</div>
+    </div>`;
+  }
+
+  /* ── Meta ── */
+  html+=`
+  <div class="section">
+    <div class="section-head" onclick="toggleSection(this)">
+      <span class="section-title">📋 Pipeline Meta</span>
+      <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="section-body">
+      <div class="meta-row">
+        <span>Image quality gate: <strong>${d.image_quality_passed?'Passed':'Failed'}</strong></span>
+        <span>Barcode: <strong>${d.barcode_detected?'Detected':'Not found'}</strong></span>
+        <span>Risk score: <strong>${d.risk_score.toFixed(3)}</strong></span>
+        <span>Processing: <strong>${d.processing_ms} ms</strong></span>
+        <span>Stage reached: <strong>${d.pipeline_stage_reached}</strong></span>
+      </div>
+    </div>
+  </div>`;
+
+  /* ── Warnings ── */
+  if(d.warnings&&d.warnings.length){
+    const items=d.warnings.map(w=>`<li>${w}</li>`).join('');
+    html+=`
+    <div class="section">
+      <div class="section-head" onclick="toggleSection(this)">
+        <span class="section-title">⚠️ Warnings (${d.warnings.length})</span>
+        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
+      <div class="section-body"><ul class="warn-list">${items}</ul></div>
+    </div>`;
+  }
+
+  results.innerHTML=html;
+  results.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+function toggleSection(head){
+  head.closest('.section').classList.toggle('collapsed');
+}
+</script>
+</body>
+</html>
