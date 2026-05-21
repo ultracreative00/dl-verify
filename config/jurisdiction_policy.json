@@ -1,0 +1,92 @@
+{
+  "DEFAULT": {
+    "expiry_years": [4, 8],
+    "dcf_pattern": null,
+    "required_zxx_fields": [],
+    "zxx_validators": {}
+  },
+  "AL": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "AK": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "AZ": { "expiry_years": [1, 5, 12, 65], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "AR": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "CA": {
+    "expiry_years": [5],
+    "dcf_pattern": "^\\d{2}/\\d{2}/\\d{4}[A-Z0-9]{5,8}$",
+    "required_zxx_fields": ["ZCA"],
+    "zxx_validators": {
+      "ZCA": {
+        "type": "check_digit",
+        "description": "California internal check digit field. Must be 14 alphanumeric chars.",
+        "regex": "^[A-Z0-9]{14}$"
+      }
+    }
+  },
+  "CO": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "CT": { "expiry_years": [6],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "DE": { "expiry_years": [5, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "FL": {
+    "expiry_years": [8],
+    "dcf_pattern": null,
+    "required_zxx_fields": ["ZFL"],
+    "zxx_validators": {
+      "ZFL": {
+        "type": "county_code",
+        "description": "Florida county code. First two chars must be 01–67.",
+        "regex": "^(0[1-9]|[1-5][0-9]|6[0-7])"
+      }
+    }
+  },
+  "GA": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "HI": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "ID": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "IL": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "IN": { "expiry_years": [6],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "IA": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "KS": { "expiry_years": [6],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "KY": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "LA": { "expiry_years": [4, 6], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "ME": { "expiry_years": [4, 6], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "MD": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "MA": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "MI": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "MN": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "MS": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "MO": { "expiry_years": [3, 6], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "MT": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "NE": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "NV": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "NH": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "NJ": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "NM": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "NY": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "NC": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "ND": { "expiry_years": [4, 6], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "OH": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "OK": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "OR": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "PA": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "RI": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "SC": { "expiry_years": [5, 10],"dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "SD": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "TN": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "TX": {
+    "expiry_years": [6],
+    "dcf_pattern": null,
+    "required_zxx_fields": ["ZTX"],
+    "zxx_validators": {
+      "ZTX": {
+        "type": "generic",
+        "description": "Texas internal audit field.",
+        "regex": "^[A-Z0-9]{1,30}$"
+      }
+    }
+  },
+  "UT": { "expiry_years": [5],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "VT": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "VA": { "expiry_years": [5, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "WA": { "expiry_years": [5, 6], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "WV": { "expiry_years": [5, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "WI": { "expiry_years": [4, 8], "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "WY": { "expiry_years": [4],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} },
+  "DC": { "expiry_years": [8],    "dcf_pattern": null, "required_zxx_fields": [], "zxx_validators": {} }
+}
