@@ -13,7 +13,7 @@ Driver's License and runs the full Sprint-1 validation pipeline:
 Returns a structured VerifyResponse JSON that exposes every signal
 and sub-score so the calling SMB application can surface the reason
 for a REVIEW / REJECT to its operator — a deliberate contrast to
-Persona's opaque output.
+Persona’s opaque output.
 
 All heavy I/O (image bytes) is read once and passed by reference;
 no temp files are written to disk.
@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 
 from app.core.barcode.detector import detect_barcode
 from app.core.barcode.exceptions import BarcodeNotFoundError
-from app.core.barcode.parser import parse_aamva
+from app.core.barcode.parser import parse_aamva, ParsedAAMVADocument
 from app.core.barcode.validators import (
     check_age_derived_fields,
     check_date_logic,
@@ -130,25 +130,40 @@ class VerifyResponse(BaseModel):
 SEX_MAP = {"1": "M", "2": "F", "9": "Not Specified"}
 
 
-def _build_extracted_fields(doc: dict) -> ExtractedFields:
-    """Map raw AAMVA parsed dict to the public ExtractedFields schema."""
+def _build_extracted_fields(doc: ParsedAAMVADocument) -> ExtractedFields:
+    """
+    Map a ParsedAAMVADocument to the public ExtractedFields response schema.
+
+    Uses doc.normalized_fields so that date values are already in
+    ISO 8601 (YYYY-MM-DD) format for display.
+    """
+    f = doc.normalized_fields  # plain dict[str, str] -- safe to call .get() on
+
+    # _jurisdiction and _aamva_version are injected by some parser paths;
+    # fall back gracefully when absent.
+    raw_sex = f.get("DBC", "")
+
     return ExtractedFields(
-        license_number=doc.get("DAQ"),
-        family_name=doc.get("DCS"),
-        given_name=doc.get("DAC"),
-        middle_name=doc.get("DAD"),
-        date_of_birth=doc.get("DBB"),
-        expiration_date=doc.get("DBA"),
-        issue_date=doc.get("DBD"),
-        address_street=doc.get("DAG"),
-        address_city=doc.get("DAI"),
-        address_state=doc.get("DAJ"),
-        address_postal=doc.get("DAK"),
-        sex=SEX_MAP.get(doc.get("DBC", ""), doc.get("DBC")),
-        height=doc.get("DAU"),
-        jurisdiction=doc.get("_jurisdiction"),
-        country=doc.get("DCG"),
-        aamva_version=doc.get("_aamva_version"),
+        license_number=f.get("DAQ"),
+        family_name=f.get("DCS"),
+        given_name=f.get("DAC"),
+        middle_name=f.get("DAD"),
+        date_of_birth=f.get("DBB"),
+        expiration_date=f.get("DBA"),
+        issue_date=f.get("DBD"),
+        address_street=f.get("DAG"),
+        address_city=f.get("DAI"),
+        address_state=f.get("DAJ"),
+        address_postal=f.get("DAK"),
+        sex=SEX_MAP.get(raw_sex, raw_sex if raw_sex else None),
+        height=f.get("DAU"),
+        jurisdiction=f.get("_jurisdiction") or f.get("DAJ"),
+        country=f.get("DCG"),
+        aamva_version=(
+            int(f["_aamva_version"])
+            if f.get("_aamva_version", "").isdigit()
+            else None
+        ),
     )
 
 
@@ -213,7 +228,7 @@ async def verify_document(
     warnings: list[str] = []
     pipeline_stage = "upload"
 
-    # ── 1. Read uploads ────────────────────────────────────────────────────
+    # ── 1. Read uploads ───────────────────────────────────────────────
     front_bytes = await _read_upload(front, "front")
     back_bytes = await _read_upload(back, "back")
 
@@ -225,7 +240,7 @@ async def verify_document(
         back_content_type=back.content_type,
     )
 
-    # ── 2. Image quality gate ──────────────────────────────────────────────
+    # ── 2. Image quality gate ───────────────────────────────────────
     pipeline_stage = "image_quality"
     image_quality_passed = True
 
@@ -241,8 +256,6 @@ async def verify_document(
             warnings.append(f"Back image quality issue: {back_quality.reason}")
 
         if not image_quality_passed:
-            # Quality failures are surfaced as REJECT with explanatory signals
-            # rather than a hard 4xx — the caller should prompt re-capture.
             elapsed = int((time.monotonic() - t_start) * 1000)
             return VerifyResponse(
                 recommendation="REJECT",
@@ -262,9 +275,8 @@ async def verify_document(
         logger.warning("image_quality_error", error=str(exc))
         warnings.append(f"Image quality check could not complete: {exc}")
         image_quality_passed = False
-        # Non-fatal: continue to barcode detection with warning
 
-    # ── 3. Barcode detection ───────────────────────────────────────────────
+    # ── 3. Barcode detection ───────────────────────────────────────
     pipeline_stage = "barcode_detection"
 
     try:
@@ -292,7 +304,7 @@ async def verify_document(
             detail="Barcode detection failed unexpectedly. Please try again.",
         ) from exc
 
-    # ── 4. AAMVA parse ─────────────────────────────────────────────────────
+    # ── 4. AAMVA parse ────────────────────────────────────────────
     pipeline_stage = "aamva_parse"
 
     try:
@@ -314,9 +326,11 @@ async def verify_document(
             warnings=warnings + [f"AAMVA parse error: {exc}"],
         )
 
-    # ── 5. Cross-validation checks ─────────────────────────────────────────
+    # ── 5. Cross-validation checks ─────────────────────────────────
     pipeline_stage = "cross_validation"
 
+    # Validators receive the full ParsedAAMVADocument -- they access
+    # whichever of .raw_fields / .normalized_fields they need internally.
     validation_results = [
         check_syntax_conformance(doc),
         check_date_logic(doc),
@@ -326,11 +340,11 @@ async def verify_document(
         check_age_derived_fields(doc),
     ]
 
-    # ── 6. Risk scoring ────────────────────────────────────────────────────
+    # ── 6. Risk scoring ──────────────────────────────────────────
     pipeline_stage = "risk_scoring"
     score_result = score(validation_results)
 
-    # ── 7. Assemble response ───────────────────────────────────────────────
+    # ── 7. Assemble response ──────────────────────────────────────
     elapsed = int((time.monotonic() - t_start) * 1000)
 
     response = VerifyResponse(
