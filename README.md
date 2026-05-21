@@ -2,9 +2,10 @@
 
 > AAMVA Driver's License Fraud Detection — Sprint 1 & 2
 
-[![Sprint](https://img.shields.io/badge/Sprint-1--2-blue)](#fraud-signals-reference)
+[![Sprint](https://img.shields.io/badge/Sprint-1--2%20Complete-brightgreen)](#fraud-signals-reference)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](#prerequisites)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-green)](#run-the-api-server)
+[![UI](https://img.shields.io/badge/UI-Multi--step%20upload-blueviolet)](#using-the-ui)
 [![License](https://img.shields.io/badge/License-MIT-gray)](#)
 
 A forensic identity-verification API that parses the **PDF417 barcode** on the back of any US/CAN driver's license, cross-validates it against the front (OCR), gates on image quality, and returns a structured fraud-signal payload with a final `PASS / REVIEW / REJECT` recommendation — with no DMV database calls.
@@ -178,7 +179,7 @@ uvicorn app.main:app --reload
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-Open **http://localhost:8000** — the multi-step UI loads automatically.
+Open **http://localhost:8000** — the upload UI loads automatically as the main page.
 
 API docs: **http://localhost:8000/docs** | ReDoc: **http://localhost:8000/redoc**
 
@@ -186,16 +187,36 @@ API docs: **http://localhost:8000/docs** | ReDoc: **http://localhost:8000/redoc*
 
 ## Using the UI
 
-The browser UI walks through **3 steps**:
+The browser UI at **`http://localhost:8000`** is the main app entry point — no separate dashboard or navigation needed.
 
-1. **Upload** — Drop or click to upload the **front** and **back** images of the DL (JPEG · PNG · WebP, max 10 MB each).
-2. **Analyse** — Hit **Verify Document**. A live pipeline tracker shows each stage as it completes: Quality → Barcode → Parse → Validate → Score.
-3. **Review Results** — The verdict card shows `PASS / REVIEW / REJECT` with:
-   - Animated risk gauge (0–100%)
-   - Per-signal validation breakdown (expandable)
-   - Extracted AAMVA fields
-   - OCR ↔ Barcode Diff panel *(Sprint 2, auto-shown when signals present)*
-   - Raw JSON modal for API debugging
+It walks through **3 steps inline on a single page**:
+
+### Step 1 — Upload
+- Two drop-zones: **Front** (portrait side) and **Back** (barcode side)
+- Drag-and-drop or click to browse — accepts JPEG · PNG · WebP up to 10 MB each
+- Image previews appear immediately; a clear button removes either side
+- The **Verify Document** button activates only once both images are loaded
+
+### Step 2 — Analyse
+- Hit **Verify Document** to submit both images to `POST /api/v1/verify`
+- A live **6-stage pipeline tracker** animates in real time:
+  `Upload → Quality → Barcode → Parse → Validate → Score`
+- Each stage shows active (pulsing), done (✓), or failed (✗)
+
+### Step 3 — Review Results
+Results appear below the upload form on the same page:
+
+| Panel | Contents |
+|-------|----------|
+| **Verdict card** | `PASS / REVIEW / REJECT` label + animated risk gauge (0–100%) |
+| **Hard flags** | Red/amber chips for any forced-fail or forced-review signals |
+| **Validation Checks** | All 6 checks with severity badge + score; click any row to expand raw sub-signals |
+| **Extracted Fields** | All 16 AAMVA fields parsed from the barcode |
+| **OCR ↔ Barcode Diff** | *(Sprint 2)* Auto-shown when OCR signals are present — field-by-field match/mismatch |
+| **Pipeline Warnings** | Non-fatal notices from image quality or parse steps |
+| **Raw JSON** | Full API response viewer with copy-to-clipboard |
+
+Light/dark mode toggle is in the top-right corner.
 
 ---
 
@@ -272,7 +293,7 @@ Test fixtures live in `tests/fixtures/`. Synthetic barcode payloads are used —
 ```
 dl-verify/
 ├── app/
-│   ├── main.py                  # FastAPI factory — CORS, routing, static UI
+│   ├── main.py                  # FastAPI factory — CORS, routing, static UI served at /
 │   ├── api/
 │   │   └── routes/
 │   │       └── verify.py        # POST /api/v1/verify — pipeline orchestration
@@ -290,7 +311,7 @@ dl-verify/
 │   └── utils/
 │       └── logger.py            # Structured JSON logger
 ├── ui/
-│   └── index.html               # Multi-step browser UI (single-file, no build step)
+│   └── index.html               # Single-page upload UI — served at / (main app entry point)
 ├── tests/
 ├── config/
 ├── .env.example
@@ -332,11 +353,11 @@ dl-verify/
 
 ## Roadmap
 
-- [x] Sprint 1 — AAMVA barcode parsing + 6 cross-validation checks + image quality gate
-- [x] Sprint 2 — Front OCR extraction + barcode↔OCR diff panel
-- [ ] Sprint 3 — Face matching (InsightFace / AWS Rekognition) + passive liveness
-- [ ] Sprint 4 — Template geometry alignment (top-10 US states)
-- [ ] Sprint 5 — Webhook delivery, result storage, API key management
+- [x] **Sprint 1** — AAMVA PDF417 barcode parsing + 6 cross-validation checks + image quality gate
+- [x] **Sprint 2** — Front OCR extraction (PaddleOCR / Textract) + barcode↔OCR diff panel in UI
+- [ ] **Sprint 3** — Face matching (InsightFace / AWS Rekognition) + passive liveness detection
+- [ ] **Sprint 4** — Template geometry alignment for top-10 US states
+- [ ] **Sprint 5** — Webhook delivery, result storage, API key management per customer
 
 ---
 
