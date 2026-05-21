@@ -1,530 +1,988 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>DL Verify — Driver's Licence Fraud Detection</title>
-<style>
-/* ── Design tokens ───────────────────────────────────────────── */
-:root,[data-theme="light"]{
-  --bg:#f7f6f2;--surface:#f9f8f5;--surface-2:#fbfbf9;
-  --border:rgba(0,0,0,.10);--divider:rgba(0,0,0,.07);
-  --text:#28251d;--muted:#7a7974;--faint:#bab9b4;
-  --primary:#01696f;--primary-h:#0c4e54;
-  --pass:#437a22;--pass-bg:#d4dfcc;
-  --warn:#d19900;--warn-bg:#f5edcc;
-  --fail:#a12c7b;--fail-bg:#e0ced7;
-  --reject:#a13544;--reject-bg:#e8d4d6;
-  --radius:0.625rem;--transition:180ms cubic-bezier(.16,1,.3,1);
-  --shadow:0 4px 16px rgba(0,0,0,.08);
-}
-[data-theme="dark"]{
-  --bg:#171614;--surface:#1c1b19;--surface-2:#201f1d;
-  --border:rgba(255,255,255,.09);--divider:rgba(255,255,255,.05);
-  --text:#cdccca;--muted:#797876;--faint:#5a5957;
-  --primary:#4f98a3;--primary-h:#227f8b;
-  --pass:#6daa45;--pass-bg:#2a3a22;
-  --warn:#e8af34;--warn-bg:#3a3020;
-  --fail:#d163a7;--fail-bg:#3a2535;
-  --reject:#dd6974;--reject-bg:#3a2025;
-  --shadow:0 4px 16px rgba(0,0,0,.35);
-}
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DL Verify — Driver's License Fraud Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Design tokens ─────────────────────────────────────────── */
+    :root {
+      --bg:            #0d0d0f;
+      --surface:       #131316;
+      --surface-2:     #1a1a1e;
+      --surface-3:     #222228;
+      --border:        rgba(255,255,255,0.07);
+      --border-strong: rgba(255,255,255,0.13);
+      --text:          #e8e8ea;
+      --text-muted:    #8a8a96;
+      --text-faint:    #4a4a56;
+      --accent:        #4f8ef7;
+      --accent-glow:   rgba(79,142,247,0.18);
+      --accent-hover:  #6aa0ff;
+      --success:       #34c97a;
+      --success-bg:    rgba(52,201,122,0.10);
+      --warn:          #f5a623;
+      --warn-bg:       rgba(245,166,35,0.10);
+      --danger:        #f0546a;
+      --danger-bg:     rgba(240,84,106,0.10);
+      --radius-sm:     6px;
+      --radius-md:     10px;
+      --radius-lg:     16px;
+      --radius-xl:     20px;
+      --font-body:     'Inter', system-ui, sans-serif;
+      --font-mono:     'JetBrains Mono', 'Fira Code', monospace;
+      --shadow-lg:     0 24px 64px rgba(0,0,0,0.6);
+      --transition:    180ms cubic-bezier(0.16,1,0.3,1);
+    }
 
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-html{-webkit-font-smoothing:antialiased;scroll-behavior:smooth}
-body{
-  min-height:100dvh;background:var(--bg);color:var(--text);
-  font-family:'Inter',system-ui,sans-serif;font-size:15px;line-height:1.6;
-}
-img{display:block;max-width:100%}
-a,button{transition:color var(--transition),background var(--transition),border-color var(--transition)}
-button{cursor:pointer;background:none;border:none;font:inherit;color:inherit}
+    /* ── Reset ─────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--text);
+      background: var(--bg);
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+    }
+    img { display: block; max-width: 100%; }
+    button { cursor: pointer; font: inherit; border: none; background: none; }
 
-/* ── Layout ─────────────────────────────────────────────────── */
-.app{display:grid;grid-template-rows:auto 1fr;min-height:100dvh}
+    /* ── Layout ────────────────────────────────────────────────── */
+    .page-wrap {
+      max-width: 960px;
+      margin-inline: auto;
+      padding: 40px 20px 80px;
+    }
 
-header{
-  background:var(--surface);border-bottom:1px solid var(--border);
-  padding:0 1.5rem;height:56px;display:flex;align-items:center;
-  justify-content:space-between;position:sticky;top:0;z-index:10;
-}
-.logo{display:flex;align-items:center;gap:.625rem;font-weight:600;font-size:15px;color:var(--text);text-decoration:none}
-.logo svg{color:var(--primary)}
-.badge{
-  font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
-  background:var(--primary);color:#fff;padding:2px 8px;border-radius:99px
-}
-.theme-btn{padding:6px;border-radius:6px;color:var(--muted)}
-.theme-btn:hover{background:var(--surface-2);color:var(--text)}
+    /* ── Header ────────────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 48px;
+    }
+    .logo {
+      width: 40px; height: 40px;
+      flex-shrink: 0;
+    }
+    .header-text h1 {
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .header-text p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    .badge {
+      margin-left: auto;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 3px 10px;
+      border-radius: var(--radius-sm);
+      background: rgba(79,142,247,0.12);
+      color: var(--accent);
+      border: 1px solid rgba(79,142,247,0.22);
+    }
 
-main{padding:2rem 1.5rem;max-width:900px;margin:0 auto;width:100%}
+    /* ── Upload grid ───────────────────────────────────────────── */
+    .upload-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 600px) {
+      .upload-grid { grid-template-columns: 1fr; }
+    }
 
-h1{font-size:1.375rem;font-weight:700;margin-bottom:.25rem}
-.subtitle{color:var(--muted);font-size:14px;margin-bottom:2rem}
+    .drop-zone {
+      position: relative;
+      border: 1.5px dashed var(--border-strong);
+      border-radius: var(--radius-lg);
+      background: var(--surface);
+      padding: 32px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color var(--transition), background var(--transition), box-shadow var(--transition);
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(79,142,247,0.04);
+      box-shadow: 0 0 0 3px var(--accent-glow);
+    }
+    .drop-zone input[type=file] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .drop-icon {
+      width: 36px; height: 36px;
+      color: var(--text-faint);
+      transition: color var(--transition);
+    }
+    .drop-zone:hover .drop-icon { color: var(--accent); }
+    .drop-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+    .drop-sub {
+      font-size: 11px;
+      color: var(--text-faint);
+    }
+    .drop-side {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
 
-/* ── Upload grid ─────────────────────────────────────────────── */
-.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.25rem}
-@media(max-width:580px){.upload-grid{grid-template-columns:1fr}}
+    /* Preview inside drop zone */
+    .preview-wrap {
+      width: 100%;
+      position: relative;
+    }
+    .preview-wrap img {
+      width: 100%;
+      height: 160px;
+      object-fit: cover;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-strong);
+    }
+    .preview-clear {
+      position: absolute;
+      top: 6px; right: 6px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      border-radius: 50%;
+      width: 24px; height: 24px;
+      font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      line-height: 1;
+      transition: background var(--transition);
+      z-index: 2;
+    }
+    .preview-clear:hover { background: var(--danger); }
+    .preview-name {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
 
-.drop-zone{
-  border:2px dashed var(--border);border-radius:var(--radius);
-  background:var(--surface);padding:1.5rem;text-align:center;
-  cursor:pointer;transition:border-color var(--transition),background var(--transition);
-  position:relative;min-height:160px;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;gap:.5rem;
-}
-.drop-zone:hover,.drop-zone.drag-over{
-  border-color:var(--primary);background:var(--surface-2)
-}
-.drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
-.drop-icon{color:var(--muted);margin-bottom:.25rem}
-.drop-label{font-size:13px;font-weight:600;color:var(--text)}
-.drop-hint{font-size:12px;color:var(--muted)}
-.drop-zone.has-file{border-style:solid;border-color:var(--primary)}
-.drop-zone.has-file .preview-img{
-  max-height:120px;border-radius:6px;object-fit:cover;
-  margin-bottom:.5rem;box-shadow:var(--shadow)
-}
-.drop-zone .file-name{font-size:12px;color:var(--primary);font-weight:500}
-.drop-clear{
-  position:absolute;top:8px;right:8px;background:var(--surface-2);
-  border:1px solid var(--border);border-radius:99px;padding:2px 8px;
-  font-size:11px;color:var(--muted);z-index:2
-}
-.drop-clear:hover{color:var(--reject)}
+    /* ── Submit button ─────────────────────────────────────────── */
+    .btn-verify {
+      width: 100%;
+      padding: 14px 24px;
+      border-radius: var(--radius-md);
+      background: var(--accent);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+      box-shadow: 0 4px 20px rgba(79,142,247,0.28);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-verify:hover:not(:disabled) {
+      background: var(--accent-hover);
+      box-shadow: 0 6px 28px rgba(79,142,247,0.38);
+      transform: translateY(-1px);
+    }
+    .btn-verify:active:not(:disabled) { transform: translateY(0); }
+    .btn-verify:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Button ─────────────────────────────────────────────────── */
-.btn{
-  display:inline-flex;align-items:center;gap:.5rem;padding:.625rem 1.25rem;
-  border-radius:var(--radius);font-size:14px;font-weight:600;
-  transition:background var(--transition);
-}
-.btn-primary{background:var(--primary);color:#fff}
-.btn-primary:hover{background:var(--primary-h)}
-.btn-primary:disabled{opacity:.45;cursor:not-allowed}
-.btn-full{width:100%;justify-content:center}
+    /* ── Error banner ──────────────────────────────────────────── */
+    .error-banner {
+      display: none;
+      background: var(--danger-bg);
+      border: 1px solid rgba(240,84,106,0.25);
+      border-radius: var(--radius-md);
+      padding: 12px 16px;
+      font-size: 13px;
+      color: var(--danger);
+      margin-top: 16px;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .error-banner.visible { display: flex; }
 
-/* ── Spinner ─────────────────────────────────────────────────── */
-@keyframes spin{to{transform:rotate(360deg)}}
-.spinner{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+    /* ── Results panel ─────────────────────────────────────────── */
+    .results {
+      display: none;
+      margin-top: 40px;
+      animation: fadeUp 0.35s ease both;
+    }
+    .results.visible { display: block; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
 
-/* ── Results ─────────────────────────────────────────────────── */
-#results{margin-top:1.75rem}
+    /* Verdict card */
+    .verdict-card {
+      border-radius: var(--radius-xl);
+      padding: 28px 32px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      margin-bottom: 24px;
+      border: 1px solid var(--border);
+    }
+    .verdict-card.pass   { background: var(--success-bg); border-color: rgba(52,201,122,0.2); }
+    .verdict-card.review { background: var(--warn-bg);    border-color: rgba(245,166,35,0.2); }
+    .verdict-card.reject { background: var(--danger-bg);  border-color: rgba(240,84,106,0.2); }
 
-.verdict-card{
-  border-radius:var(--radius);padding:1.25rem 1.5rem;
-  display:flex;align-items:center;justify-content:space-between;
-  gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;
-}
-.verdict-card.PASS{background:var(--pass-bg);border:1px solid var(--pass)}
-.verdict-card.REVIEW{background:var(--warn-bg);border:1px solid var(--warn)}
-.verdict-card.REJECT{background:var(--reject-bg);border:1px solid var(--reject)}
+    .verdict-icon {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 24px;
+      flex-shrink: 0;
+    }
+    .pass   .verdict-icon { background: rgba(52,201,122,0.15);  }
+    .review .verdict-icon { background: rgba(245,166,35,0.15);  }
+    .reject .verdict-icon { background: rgba(240,84,106,0.15);  }
 
-.verdict-left{display:flex;align-items:center;gap:.875rem}
-.verdict-icon{font-size:2rem;line-height:1}
-.verdict-title{font-size:1.125rem;font-weight:700}
-.verdict-card.PASS .verdict-title{color:var(--pass)}
-.verdict-card.REVIEW .verdict-title{color:var(--warn)}
-.verdict-card.REJECT .verdict-title{color:var(--reject)}
-.verdict-sub{font-size:13px;color:var(--muted);margin-top:2px}
+    .verdict-text h2 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .pass   .verdict-text h2 { color: var(--success); }
+    .review .verdict-text h2 { color: var(--warn);    }
+    .reject .verdict-text h2 { color: var(--danger);  }
 
-.score-ring{position:relative;width:72px;height:72px;flex-shrink:0}
-.score-ring svg{transform:rotate(-90deg)}
-.score-ring .track{fill:none;stroke:var(--border);stroke-width:6}
-.score-ring .bar{fill:none;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset .6s ease}
-.score-ring .label{
-  position:absolute;inset:0;display:flex;flex-direction:column;
-  align-items:center;justify-content:center;font-size:13px;font-weight:700;
-}
-.score-ring .label span{font-size:10px;font-weight:500;color:var(--muted)}
+    .verdict-text p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .verdict-meta {
+      margin-left: auto;
+      text-align: right;
+    }
+    .risk-score-num {
+      font-size: 32px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.04em;
+    }
+    .pass   .risk-score-num { color: var(--success); }
+    .review .risk-score-num { color: var(--warn);    }
+    .reject .risk-score-num { color: var(--danger);  }
+    .risk-score-label {
+      font-size: 11px;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
 
-/* ── Sections ───────────────────────────────────────────────── */
-.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:1rem;overflow:hidden}
-.section-head{
-  padding:.875rem 1.25rem;display:flex;align-items:center;justify-content:space-between;
-  cursor:pointer;user-select:none;border-bottom:1px solid var(--divider);
-}
-.section-head:hover{background:var(--surface-2)}
-.section-title{font-weight:600;font-size:14px;display:flex;align-items:center;gap:.5rem}
-.section-body{padding:1.25rem}
+    /* Metadata row */
+    .meta-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .meta-pill {
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .meta-pill strong { color: var(--text); }
 
-/* ── Fields table ────────────────────────────────────────────── */
-.fields-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75rem 1.5rem}
-.field-item{}
-.field-key{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px}
-.field-val{font-size:14px;font-weight:500;color:var(--text)}
-.field-val.empty{color:var(--faint);font-style:italic}
+    /* Hard fails/warns */
+    .flags-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .flag-chip {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      padding: 3px 10px;
+      border-radius: var(--radius-sm);
+      display: flex; align-items: center; gap: 5px;
+    }
+    .flag-chip.fail { background: var(--danger-bg); color: var(--danger); border: 1px solid rgba(240,84,106,0.2); }
+    .flag-chip.warn { background: var(--warn-bg);   color: var(--warn);   border: 1px solid rgba(245,166,35,0.2); }
 
-/* ── Check rows ─────────────────────────────────────────────── */
-.check-row{
-  display:flex;align-items:flex-start;gap:1rem;padding:.75rem 0;
-  border-bottom:1px solid var(--divider);
-}
-.check-row:last-child{border-bottom:none}
-.check-pill{
-  flex-shrink:0;font-size:11px;font-weight:700;text-transform:uppercase;
-  letter-spacing:.04em;padding:3px 9px;border-radius:99px;margin-top:2px;
-}
-.pill-pass{background:var(--pass-bg);color:var(--pass)}
-.pill-warn{background:var(--warn-bg);color:var(--warn)}
-.pill-fail{background:var(--fail-bg);color:var(--fail)}
-.check-name{font-size:13px;font-weight:600;margin-bottom:4px}
-.check-signals{display:flex;flex-wrap:wrap;gap:.375rem}
-.signal-chip{
-  font-size:11px;padding:2px 8px;border-radius:6px;
-  background:var(--surface-2);border:1px solid var(--border);
-  color:var(--muted);
-}
-.signal-chip.bad{background:var(--fail-bg);border-color:var(--fail);color:var(--fail)}
-.signal-chip.warn{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+    /* Two-col layout for checks + fields */
+    .results-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 700px) {
+      .results-grid { grid-template-columns: 1fr; }
+    }
 
-/* ── Warnings ───────────────────────────────────────────────── */
-.warn-list{list-style:none;display:flex;flex-direction:column;gap:.5rem}
-.warn-list li{
-  font-size:13px;padding:.5rem .875rem;border-radius:6px;
-  background:var(--warn-bg);border-left:3px solid var(--warn);color:var(--text);
-}
+    /* Panel card */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-header h3 {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .panel-header .count {
+      font-size: 11px;
+      background: var(--surface-3);
+      padding: 1px 7px;
+      border-radius: var(--radius-sm);
+      color: var(--text-muted);
+    }
+    .panel-body { padding: 6px 0; }
 
-/* ── Meta row ───────────────────────────────────────────────── */
-.meta-row{display:flex;flex-wrap:wrap;gap:.75rem 2rem;font-size:13px;color:var(--muted)}
-.meta-row strong{color:var(--text)}
+    /* Check rows */
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 18px;
+      transition: background var(--transition);
+    }
+    .check-row:hover { background: var(--surface-2); }
+    .check-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .check-dot.pass   { background: var(--success); }
+    .check-dot.warn   { background: var(--warn);    }
+    .check-dot.fail   { background: var(--danger);  }
+    .check-name {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      flex: 1;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .check-sev {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 2px 8px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .check-sev.pass   { color: var(--success); background: var(--success-bg); }
+    .check-sev.warn   { color: var(--warn);    background: var(--warn-bg);    }
+    .check-sev.fail   { color: var(--danger);  background: var(--danger-bg);  }
 
-/* ── Error banner ───────────────────────────────────────────── */
-.error-banner{
-  background:var(--reject-bg);border:1px solid var(--reject);border-radius:var(--radius);
-  padding:1rem 1.25rem;font-size:14px;color:var(--reject);margin-bottom:1rem;
-}
+    /* Signals accordion */
+    .check-signals {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.25s ease;
+    }
+    .check-signals.open { max-height: 600px; }
+    .signal-list {
+      padding: 6px 18px 10px 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .signal-item {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-faint);
+      display: flex;
+      gap: 8px;
+    }
+    .signal-key { color: var(--text-muted); }
+    .signal-val.true  { color: var(--success); }
+    .signal-val.false { color: var(--danger);  }
 
-/* ── Chevron ─────────────────────────────────────────────────── */
-.chevron{transition:transform var(--transition);color:var(--muted)}
-.collapsed .chevron{transform:rotate(-90deg)}
-.section.collapsed .section-body{display:none}
-</style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    /* Expand arrow */
+    .check-arrow {
+      width: 16px; height: 16px;
+      color: var(--text-faint);
+      transition: transform var(--transition);
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .check-arrow.open { transform: rotate(90deg); }
+
+    /* Extracted fields */
+    .field-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 9px 18px;
+      border-bottom: 1px solid var(--border);
+      gap: 12px;
+    }
+    .field-row:last-child { border-bottom: none; }
+    .field-key {
+      font-size: 11px;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+    }
+    .field-val {
+      font-size: 13px;
+      font-family: var(--font-mono);
+      color: var(--text);
+      text-align: right;
+      word-break: break-all;
+    }
+    .field-val.empty { color: var(--text-faint); font-style: italic; }
+
+    /* Warnings list */
+    .warnings-panel {
+      margin-top: 16px;
+    }
+    .warn-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 18px;
+      font-size: 12px;
+      color: var(--warn);
+      border-bottom: 1px solid var(--border);
+    }
+    .warn-item:last-child { border-bottom: none; }
+
+    /* ── Footer ────────────────────────────────────────────────── */
+    .footer {
+      margin-top: 60px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-faint);
+    }
+  </style>
 </head>
 <body>
-<div class="app">
+<div class="page-wrap">
 
-<!-- ── Header ─────────────────────────────────────────────────── -->
-<header>
-  <a class="logo" href="/">
-    <svg width="26" height="26" viewBox="0 0 26 26" fill="none" aria-label="DL Verify">
-      <rect x="1" y="4" width="24" height="18" rx="3" stroke="currentColor" stroke-width="2"/>
-      <rect x="4" y="8" width="7" height="8" rx="1.5" fill="currentColor" opacity=".35"/>
-      <line x1="13" y1="9" x2="21" y2="9" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
-      <line x1="13" y1="12" x2="21" y2="12" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
-      <line x1="13" y1="15" x2="18" y2="15" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/>
-      <path d="M5 20 L9 17 L12 19 L15 15 L20 20" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".5"/>
+  <!-- Header -->
+  <header class="header">
+    <svg class="logo" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="DL Verify">
+      <rect width="40" height="40" rx="10" fill="#1a1a2e"/>
+      <rect x="7" y="13" width="26" height="17" rx="3" stroke="#4f8ef7" stroke-width="1.5"/>
+      <rect x="10" y="16" width="8" height="8" rx="1.5" fill="#4f8ef7" opacity="0.6"/>
+      <line x1="20" y1="17" x2="30" y2="17" stroke="#4f8ef7" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="20" y1="20" x2="28" y2="20" stroke="#4f8ef7" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+      <line x1="20" y1="23" x2="26" y2="23" stroke="#4f8ef7" stroke-width="1" stroke-linecap="round" opacity="0.3"/>
+      <path d="M14 27l2 2 4-4" stroke="#34c97a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-    DL Verify
+    <div class="header-text">
+      <h1>DL Verify</h1>
+      <p>AAMVA Driver's License Fraud Detection</p>
+    </div>
     <span class="badge">Sprint 1</span>
-  </a>
-  <button class="theme-btn" data-theme-toggle aria-label="Toggle theme">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-  </button>
-</header>
+  </header>
 
-<!-- ── Main ───────────────────────────────────────────────────── -->
-<main>
-  <h1>Driver's Licence Verification</h1>
-  <p class="subtitle">Upload the front and back of a US Driver's Licence to run the AAMVA fraud detection pipeline.</p>
+  <!-- Upload form -->
+  <form id="verifyForm" novalidate>
+    <div class="upload-grid">
 
-  <!-- Upload zone -->
-  <div class="upload-grid">
-    <div class="drop-zone" id="zone-front" role="button" tabindex="0" aria-label="Upload front of DL">
-      <input type="file" id="input-front" accept="image/jpeg,image/png,image/webp" aria-label="Front image">
-      <div id="preview-front">
-        <div class="drop-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="5" width="20" height="14" rx="2"/>
-            <circle cx="8" cy="11" r="2.5" fill="currentColor" opacity=".3"/>
-            <line x1="12" y1="9" x2="18" y2="9" stroke-width="1.5" stroke-linecap="round"/>
-            <line x1="12" y1="12" x2="18" y2="12" stroke-width="1.5" stroke-linecap="round"/>
+      <!-- Front -->
+      <div class="drop-zone" id="dropFront" role="button" tabindex="0" aria-label="Upload front of DL">
+        <input type="file" id="inputFront" name="front" accept="image/jpeg,image/png,image/webp" aria-label="Front of DL" />
+        <div id="placeholderFront">
+          <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <circle cx="8.5" cy="10.5" r="1.5"/>
+            <path d="M3 16l4-4 3 3 3-3 5 5"/>
           </svg>
+          <div class="drop-side">Front</div>
+          <div class="drop-label">Drop or click to upload</div>
+          <div class="drop-sub">JPEG · PNG · WebP · max 10 MB</div>
         </div>
-        <div class="drop-label">Front of DL</div>
-        <div class="drop-hint">JPEG or PNG &nbsp;·&nbsp; max 10 MB</div>
+        <div id="previewFront" class="preview-wrap" style="display:none">
+          <img id="previewImgFront" src="" alt="Front preview" />
+          <button type="button" class="preview-clear" id="clearFront" aria-label="Remove front image">&times;</button>
+          <div class="preview-name" id="previewNameFront"></div>
+        </div>
       </div>
+
+      <!-- Back -->
+      <div class="drop-zone" id="dropBack" role="button" tabindex="0" aria-label="Upload back of DL">
+        <input type="file" id="inputBack" name="back" accept="image/jpeg,image/png,image/webp" aria-label="Back of DL" />
+        <div id="placeholderBack">
+          <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <path d="M7 9h10M7 12h7M7 15h5"/>
+            <rect x="14" y="12" width="5" height="4" rx="0.5" stroke-width="1" opacity="0.5"/>
+          </svg>
+          <div class="drop-side">Back</div>
+          <div class="drop-label">Drop or click to upload</div>
+          <div class="drop-sub">Must contain PDF417 barcode</div>
+        </div>
+        <div id="previewBack" class="preview-wrap" style="display:none">
+          <img id="previewImgBack" src="" alt="Back preview" />
+          <button type="button" class="preview-clear" id="clearBack" aria-label="Remove back image">&times;</button>
+          <div class="preview-name" id="previewNameBack"></div>
+        </div>
+      </div>
+
     </div>
 
-    <div class="drop-zone" id="zone-back" role="button" tabindex="0" aria-label="Upload back of DL">
-      <input type="file" id="input-back" accept="image/jpeg,image/png,image/webp" aria-label="Back image">
-      <div id="preview-back">
-        <div class="drop-icon">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <rect x="2" y="5" width="20" height="14" rx="2"/>
-            <rect x="4" y="9" width="16" height="2" rx="1" fill="currentColor" opacity=".2"/>
-            <rect x="4" y="13" width="10" height="1.5" rx=".75" fill="currentColor" opacity=".2"/>
-            <path d="M16 11 L20 14 M16 14 L20 11" stroke-width="1.5" stroke-linecap="round" opacity=".4"/>
-          </svg>
-        </div>
-        <div class="drop-label">Back of DL</div>
-        <div class="drop-hint">Must contain the PDF417 barcode</div>
-      </div>
-    </div>
-  </div>
+    <button type="submit" class="btn-verify" id="btnVerify" disabled>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+      </svg>
+      Verify Document
+    </button>
 
-  <button class="btn btn-primary btn-full" id="submit-btn" disabled>
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-    </svg>
-    Run Verification
-  </button>
+    <div class="error-banner" id="errorBanner" role="alert">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span id="errorText"></span>
+    </div>
+  </form>
 
   <!-- Results -->
-  <div id="results"></div>
-</main>
+  <section class="results" id="results" aria-live="polite">
+
+    <!-- Verdict -->
+    <div class="verdict-card" id="verdictCard">
+      <div class="verdict-icon" id="verdictIcon"></div>
+      <div class="verdict-text">
+        <h2 id="verdictLabel"></h2>
+        <p id="verdictSub"></p>
+      </div>
+      <div class="verdict-meta">
+        <div class="risk-score-num" id="riskScore"></div>
+        <div class="risk-score-label">Risk Score</div>
+      </div>
+    </div>
+
+    <!-- Meta pills -->
+    <div class="meta-row" id="metaRow"></div>
+
+    <!-- Hard flags -->
+    <div class="flags-row" id="flagsRow"></div>
+
+    <!-- Checks + Fields grid -->
+    <div class="results-grid">
+
+      <!-- Validation checks -->
+      <div class="panel" id="checksPanel">
+        <div class="panel-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 11 12 14 22 4"/>
+            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+          <h3>Validation Checks</h3>
+          <span class="count" id="checksCount"></span>
+        </div>
+        <div class="panel-body" id="checksList"></div>
+      </div>
+
+      <!-- Extracted fields -->
+      <div class="panel" id="fieldsPanel">
+        <div class="panel-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="21" x2="9" y2="9"/>
+          </svg>
+          <h3>Extracted Fields</h3>
+        </div>
+        <div class="panel-body" id="fieldsList"></div>
+      </div>
+
+    </div>
+
+    <!-- Warnings -->
+    <div class="panel warnings-panel" id="warningsPanel" style="display:none">
+      <div class="panel-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <h3>Pipeline Warnings</h3>
+      </div>
+      <div id="warningsList"></div>
+    </div>
+
+  </section>
+
+  <footer class="footer">
+    Forensic analysis only &mdash; does not query DMV databases &middot;
+    <a href="/docs" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none">API Docs</a>
+  </footer>
+
 </div>
 
 <script>
-/* ── Theme toggle ─────────────────────────────────────────────── */
-(function(){
-  const btn=document.querySelector('[data-theme-toggle]');
-  const html=document.documentElement;
-  const SUN='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
-  const MOON='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
-  let theme=html.getAttribute('data-theme')||'dark';
-  btn.innerHTML=theme==='dark'?SUN:MOON;
-  btn.addEventListener('click',()=>{
-    theme=theme==='dark'?'light':'dark';
-    html.setAttribute('data-theme',theme);
-    btn.innerHTML=theme==='dark'?SUN:MOON;
-  });
-})();
+(function () {
+  'use strict';
 
-/* ── File inputs ──────────────────────────────────────────────── */
-const files={front:null,back:null};
+  // ── State ──────────────────────────────────────────────────────
+  const state = { front: null, back: null };
 
-function setupZone(side){
-  const zone=document.getElementById('zone-'+side);
-  const input=document.getElementById('input-'+side);
-  const preview=document.getElementById('preview-'+side);
+  // ── DOM refs ───────────────────────────────────────────────────
+  const form        = document.getElementById('verifyForm');
+  const btnVerify   = document.getElementById('btnVerify');
+  const errorBanner = document.getElementById('errorBanner');
+  const errorText   = document.getElementById('errorText');
+  const resultsEl   = document.getElementById('results');
 
-  input.addEventListener('change',()=>handleFile(side,input.files[0]));
+  // ── File handling helpers ──────────────────────────────────────
+  function setFile(side, file) {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { showError('Please upload an image file (JPEG, PNG, or WebP).'); return; }
+    if (file.size > 10 * 1024 * 1024) { showError('File exceeds 10 MB limit.'); return; }
 
-  zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag-over')});
-  zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));
-  zone.addEventListener('drop',e=>{
-    e.preventDefault();zone.classList.remove('drag-over');
-    const f=e.dataTransfer.files[0];
-    if(f) handleFile(side,f);
-  });
-  zone.addEventListener('keydown',e=>{
-    if(e.key==='Enter'||e.key===' '){e.preventDefault();input.click();}
-  });
-}
-
-function handleFile(side,file){
-  if(!file) return;
-  files[side]=file;
-  const zone=document.getElementById('zone-'+side);
-  const preview=document.getElementById('preview-'+side);
-  zone.classList.add('has-file');
-
-  const url=URL.createObjectURL(file);
-  const label=side==='front'?'Front of DL':'Back of DL';
-  preview.innerHTML=
-    `<img class="preview-img" src="${url}" alt="${label} preview" loading="lazy">
-     <div class="file-name">${file.name}</div>
-     <button class="drop-clear" type="button" onclick="clearFile('${side}',event)">✕ Remove</button>`;
-
-  updateSubmit();
-}
-
-function clearFile(side,e){
-  e.stopPropagation();
-  files[side]=null;
-  const zone=document.getElementById('zone-'+side);
-  zone.classList.remove('has-file');
-  document.getElementById('input-'+side).value='';
-  const label=side==='front'?'Front of DL':'Back of DL';
-  const hint=side==='front'?'JPEG or PNG &nbsp;·&nbsp; max 10 MB':'Must contain the PDF417 barcode';
-  document.getElementById('preview-'+side).innerHTML=
-    `<div class="drop-icon"></div>
-     <div class="drop-label">${label}</div>
-     <div class="drop-hint">${hint}</div>`;
-  updateSubmit();
-}
-
-function updateSubmit(){
-  document.getElementById('submit-btn').disabled=!(files.front&&files.back);
-}
-
-setupZone('front');
-setupZone('back');
-
-/* ── Submit ───────────────────────────────────────────────────── */
-document.getElementById('submit-btn').addEventListener('click', async()=>{
-  const btn=document.getElementById('submit-btn');
-  const results=document.getElementById('results');
-  btn.disabled=true;
-  btn.innerHTML='<div class="spinner"></div> Verifying…';
-  results.innerHTML='';
-
-  const fd=new FormData();
-  fd.append('front',files.front);
-  fd.append('back',files.back);
-
-  try{
-    const res=await fetch('/api/v1/verify',{method:'POST',body:fd});
-    const data=await res.json();
-    if(!res.ok) throw new Error(data.detail||`HTTP ${res.status}`);
-    renderResults(data);
-  }catch(err){
-    results.innerHTML=`<div class="error-banner">⚠ ${err.message}</div>`;
-  }finally{
-    btn.disabled=false;
-    btn.innerHTML=
-      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Run Verification';
-  }
-});
-
-/* ── Render ───────────────────────────────────────────────────── */
-function renderResults(d){
-  const results=document.getElementById('results');
-  let html='';
-
-  /* ── Verdict card ── */
-  const icon={PASS:'✅',REVIEW:'⚠️',REJECT:'❌'}[d.recommendation]||'🔍';
-  const scoreP=Math.round((1-d.risk_score)*100);
-  const scoreColor=d.recommendation==='PASS'?'var(--pass)':d.recommendation==='REVIEW'?'var(--warn)':'var(--reject)';
-  const circ=2*Math.PI*28;
-  const dash=circ*(1-(scoreP/100));
-
-  html+=`
-  <div class="verdict-card ${d.recommendation}">
-    <div class="verdict-left">
-      <div class="verdict-icon">${icon}</div>
-      <div>
-        <div class="verdict-title">${d.recommendation}</div>
-        <div class="verdict-sub">
-          Pipeline: <strong>${d.pipeline_stage_reached}</strong> &nbsp;·&nbsp;
-          ${d.processing_ms} ms &nbsp;·&nbsp;
-          Barcode: ${d.barcode_detected?'✓ detected':'✗ not found'}
-        </div>
-      </div>
-    </div>
-    <div class="score-ring" title="Confidence score">
-      <svg width="72" height="72" viewBox="0 0 72 72">
-        <circle class="track" cx="36" cy="36" r="28"/>
-        <circle class="bar" cx="36" cy="36" r="28"
-          stroke="${scoreColor}"
-          stroke-dasharray="${circ.toFixed(2)}"
-          stroke-dashoffset="${dash.toFixed(2)}"/>
-      </svg>
-      <div class="label">${scoreP}<span>score</span></div>
-    </div>
-  </div>`;
-
-  /* ── Hard fails / warns ── */
-  if(d.hard_fails.length||d.hard_warns.length){
-    const items=[
-      ...d.hard_fails.map(s=>`<span class="signal-chip bad">✗ ${s}</span>`),
-      ...d.hard_warns.map(s=>`<span class="signal-chip warn">⚠ ${s}</span>`),
-    ].join('');
-    html+=`
-    <div class="section">
-      <div class="section-head" onclick="toggleSection(this)">
-        <span class="section-title">🚨 Override Signals</span>
-        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="section-body"><div style="display:flex;flex-wrap:wrap;gap:.5rem">${items}</div></div>
-    </div>`;
+    state[side] = file;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const S = side.charAt(0).toUpperCase() + side.slice(1);
+      document.getElementById('placeholder' + S).style.display = 'none';
+      document.getElementById('preview' + S).style.display = 'block';
+      document.getElementById('previewImg' + S).src = e.target.result;
+      document.getElementById('previewName' + S).textContent = file.name;
+    };
+    reader.readAsDataURL(file);
+    syncButton();
+    hideError();
   }
 
-  /* ── Extracted fields ── */
-  if(d.extracted_fields){
-    const f=d.extracted_fields;
-    const fieldDefs=[
-      ['License #','license_number'],['Last Name','family_name'],['First Name','given_name'],
-      ['Middle Name','middle_name'],['Date of Birth','date_of_birth'],['Expiration','expiration_date'],
-      ['Issued','issue_date'],['Sex','sex'],['Height','height'],['Jurisdiction','jurisdiction'],
-      ['Country','country'],['AAMVA Version','aamva_version'],
-      ['Street','address_street'],['City','address_city'],['State','address_state'],['ZIP','address_postal'],
+  function clearFile(side) {
+    state[side] = null;
+    const S = side.charAt(0).toUpperCase() + side.slice(1);
+    document.getElementById('placeholder' + S).style.display = '';
+    document.getElementById('preview' + S).style.display = 'none';
+    document.getElementById('previewImg' + S).src = '';
+    document.getElementById('input' + S).value = '';
+    syncButton();
+  }
+
+  function syncButton() {
+    btnVerify.disabled = !(state.front && state.back);
+  }
+
+  // ── Wire inputs ────────────────────────────────────────────────
+  ['front', 'back'].forEach(side => {
+    const S = side.charAt(0).toUpperCase() + side.slice(1);
+    const input = document.getElementById('input' + S);
+    const drop  = document.getElementById('drop' + S);
+    const clear = document.getElementById('clear' + S);
+
+    input.addEventListener('change', () => setFile(side, input.files[0]));
+    clear.addEventListener('click', e => { e.stopPropagation(); clearFile(side); });
+
+    drop.addEventListener('dragover',  e => { e.preventDefault(); drop.classList.add('drag-over'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      drop.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      setFile(side, file);
+    });
+
+    drop.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); }
+    });
+  });
+
+  // ── Error helpers ──────────────────────────────────────────────
+  function showError(msg) {
+    errorText.textContent = msg;
+    errorBanner.classList.add('visible');
+  }
+  function hideError() {
+    errorBanner.classList.remove('visible');
+  }
+
+  // ── Submit ─────────────────────────────────────────────────────
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    hideError();
+    resultsEl.classList.remove('visible');
+
+    btnVerify.disabled = true;
+    btnVerify.innerHTML = '<div class="spinner"></div> Analysing&hellip;';
+
+    const fd = new FormData();
+    fd.append('front', state.front);
+    fd.append('back',  state.back);
+
+    try {
+      const res = await fetch('/api/v1/verify', { method: 'POST', body: fd });
+      const data = await res.json();
+
+      if (!res.ok) {
+        const msg = data.detail || data.error || `Server error ${res.status}`;
+        showError(msg);
+        return;
+      }
+
+      renderResults(data);
+
+    } catch (err) {
+      showError('Could not reach the server. Is the API running on port 8000?');
+    } finally {
+      btnVerify.disabled = false;
+      btnVerify.innerHTML = `
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        Verify Document`;
+      syncButton();
+    }
+  });
+
+  // ── Render ─────────────────────────────────────────────────────
+  function renderResults(d) {
+    const rec  = (d.recommendation || 'UNKNOWN').toUpperCase();
+    const risk = typeof d.risk_score === 'number' ? d.risk_score : 1;
+
+    // Verdict card
+    const card = document.getElementById('verdictCard');
+    card.className = 'verdict-card ' + rec.toLowerCase();
+
+    const icons = { PASS: '\u2713', REVIEW: '\u26A0', REJECT: '\u2715', UNKNOWN: '?' };
+    const subs  = {
+      PASS:    'Document passed all validation checks.',
+      REVIEW:  'One or more checks require manual review.',
+      REJECT:  'Document failed one or more hard validation checks.',
+      UNKNOWN: 'Unexpected result from server.',
+    };
+    document.getElementById('verdictIcon').textContent  = icons[rec] || '?';
+    document.getElementById('verdictLabel').textContent = rec;
+    document.getElementById('verdictSub').textContent   = subs[rec] || '';
+    document.getElementById('riskScore').textContent    = (risk * 100).toFixed(0) + '%';
+
+    // Meta pills
+    const metaRow = document.getElementById('metaRow');
+    metaRow.innerHTML = '';
+    const pills = [
+      ['\uD83D\uDCF7', 'Barcode', d.barcode_detected ? 'Detected' : 'Not found'],
+      ['\uD83D\uDDBC\uFE0F', 'Image Quality', d.image_quality_passed ? 'Passed' : 'Failed'],
+      ['\u23F1', 'Processing', d.processing_ms + ' ms'],
+      ['\uD83D\uDD0D', 'Stage', d.pipeline_stage_reached || '—'],
     ];
-    const items=fieldDefs.map(([label,key])=>{
-      const val=f[key];
-      return `<div class="field-item">
-        <div class="field-key">${label}</div>
-        <div class="field-val ${val==null||val===''?'empty':''}">${val??'—'}</div>
-      </div>`;
-    }).join('');
-    html+=`
-    <div class="section">
-      <div class="section-head" onclick="toggleSection(this)">
-        <span class="section-title">🪪 Extracted Document Fields</span>
-        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="section-body"><div class="fields-grid">${items}</div></div>
-    </div>`;
+    pills.forEach(([icon, label, val]) => {
+      const p = document.createElement('div');
+      p.className = 'meta-pill';
+      p.innerHTML = `${icon} ${label}: <strong>${val}</strong>`;
+      metaRow.appendChild(p);
+    });
+
+    // Flags
+    const flagsRow = document.getElementById('flagsRow');
+    flagsRow.innerHTML = '';
+    (d.hard_fails || []).forEach(f => {
+      const c = document.createElement('span');
+      c.className = 'flag-chip fail';
+      c.innerHTML = '&#10007; ' + f;
+      flagsRow.appendChild(c);
+    });
+    (d.hard_warns || []).forEach(w => {
+      const c = document.createElement('span');
+      c.className = 'flag-chip warn';
+      c.innerHTML = '&#9888; ' + w;
+      flagsRow.appendChild(c);
+    });
+
+    // Checks
+    const checksList  = document.getElementById('checksList');
+    const checksCount = document.getElementById('checksCount');
+    checksList.innerHTML = '';
+    const checks = d.checks || [];
+    checksCount.textContent = checks.length;
+
+    checks.forEach((chk, i) => {
+      const sev = chk.severity || 'pass';
+
+      // Row
+      const row = document.createElement('div');
+      row.className = 'check-row';
+      row.style.cursor = 'pointer';
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('aria-expanded', 'false');
+
+      const dot = document.createElement('div');
+      dot.className = 'check-dot ' + sev;
+
+      const name = document.createElement('div');
+      name.className = 'check-name';
+      name.textContent = chk.check;
+
+      const sevBadge = document.createElement('span');
+      sevBadge.className = 'check-sev ' + sev;
+      sevBadge.textContent = sev;
+
+      const arrow = document.createElement('svg');
+      arrow.setAttribute('viewBox', '0 0 24 24');
+      arrow.setAttribute('fill', 'none');
+      arrow.setAttribute('stroke', 'currentColor');
+      arrow.setAttribute('stroke-width', '2');
+      arrow.className = 'check-arrow';
+      arrow.innerHTML = '<polyline points="9 18 15 12 9 6"/>';
+
+      row.appendChild(dot);
+      row.appendChild(name);
+      row.appendChild(sevBadge);
+      row.appendChild(arrow);
+
+      // Signals accordion
+      const sigWrap = document.createElement('div');
+      sigWrap.className = 'check-signals';
+
+      const signals = chk.signals || {};
+      const sigKeys = Object.keys(signals);
+      if (sigKeys.length > 0) {
+        const list = document.createElement('div');
+        list.className = 'signal-list';
+        sigKeys.forEach(k => {
+          const v = signals[k];
+          const item = document.createElement('div');
+          item.className = 'signal-item';
+          const valStr = typeof v === 'boolean' ? String(v) : JSON.stringify(v);
+          const valClass = v === true ? 'true' : v === false ? 'false' : '';
+          item.innerHTML = `<span class="signal-key">${k}:</span><span class="signal-val ${valClass}">${valStr}</span>`;
+          list.appendChild(item);
+        });
+        sigWrap.appendChild(list);
+
+        // Toggle
+        const toggle = () => {
+          const open = sigWrap.classList.toggle('open');
+          arrow.classList.toggle('open', open);
+          row.setAttribute('aria-expanded', String(open));
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      } else {
+        arrow.style.visibility = 'hidden';
+      }
+
+      checksList.appendChild(row);
+      checksList.appendChild(sigWrap);
+    });
+
+    // Extracted fields
+    const fieldsList = document.getElementById('fieldsList');
+    fieldsList.innerHTML = '';
+    const ef = d.extracted_fields || {};
+    const fieldLabels = {
+      license_number:  'License #',
+      family_name:     'Last Name',
+      given_name:      'First Name',
+      middle_name:     'Middle',
+      date_of_birth:   'Date of Birth',
+      expiration_date: 'Expires',
+      issue_date:      'Issued',
+      address_street:  'Street',
+      address_city:    'City',
+      address_state:   'State',
+      address_postal:  'Postal',
+      sex:             'Sex',
+      height:          'Height',
+      jurisdiction:    'Jurisdiction',
+      country:         'Country',
+      aamva_version:   'AAMVA Ver.',
+    };
+    Object.entries(fieldLabels).forEach(([key, label]) => {
+      const val = ef[key];
+      const row = document.createElement('div');
+      row.className = 'field-row';
+      const k = document.createElement('span');
+      k.className = 'field-key';
+      k.textContent = label;
+      const v = document.createElement('span');
+      v.className = 'field-val' + (val == null || val === '' ? ' empty' : '');
+      v.textContent = val != null && val !== '' ? val : '—';
+      row.appendChild(k);
+      row.appendChild(v);
+      fieldsList.appendChild(row);
+    });
+
+    // Warnings
+    const warningsPanel = document.getElementById('warningsPanel');
+    const warningsList  = document.getElementById('warningsList');
+    warningsList.innerHTML = '';
+    const warns = d.warnings || [];
+    if (warns.length > 0) {
+      warns.forEach(w => {
+        const item = document.createElement('div');
+        item.className = 'warn-item';
+        item.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>${w}`;
+        warningsList.appendChild(item);
+      });
+      warningsPanel.style.display = '';
+    } else {
+      warningsPanel.style.display = 'none';
+    }
+
+    resultsEl.classList.add('visible');
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  /* ── Checks breakdown ── */
-  if(d.checks&&d.checks.length){
-    const rows=d.checks.map(c=>{
-      const pill=`pill-${c.severity==='pass'?'pass':c.severity==='warn'?'warn':'fail'}`;
-      const chips=Object.entries(c.signals).map(([k,v])=>{
-        const bad=v===true&&k.match(/mismatch|invalid|fail|error|missing|absent|bad|impossible|after|before_issue/);
-        const warn=v===true&&k.match(/warn|low|short|gap/);
-        return `<span class="signal-chip ${bad?'bad':warn?'warn':''}">${k}: ${v}</span>`;
-      }).join('');
-      return `<div class="check-row">
-        <span class="check-pill ${pill}">${c.severity}</span>
-        <div>
-          <div class="check-name">${c.check.replace(/_/g,' ')}</div>
-          <div class="check-signals">${chips||'<span class="signal-chip">no signals</span>'}</div>
-        </div>
-      </div>`;
-    }).join('');
-    html+=`
-    <div class="section">
-      <div class="section-head" onclick="toggleSection(this)">
-        <span class="section-title">🔬 Validation Checks (${d.checks.length})</span>
-        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="section-body">${rows}</div>
-    </div>`;
-  }
-
-  /* ── Meta ── */
-  html+=`
-  <div class="section">
-    <div class="section-head" onclick="toggleSection(this)">
-      <span class="section-title">📋 Pipeline Meta</span>
-      <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-    </div>
-    <div class="section-body">
-      <div class="meta-row">
-        <span>Image quality gate: <strong>${d.image_quality_passed?'Passed':'Failed'}</strong></span>
-        <span>Barcode: <strong>${d.barcode_detected?'Detected':'Not found'}</strong></span>
-        <span>Risk score: <strong>${d.risk_score.toFixed(3)}</strong></span>
-        <span>Processing: <strong>${d.processing_ms} ms</strong></span>
-        <span>Stage reached: <strong>${d.pipeline_stage_reached}</strong></span>
-      </div>
-    </div>
-  </div>`;
-
-  /* ── Warnings ── */
-  if(d.warnings&&d.warnings.length){
-    const items=d.warnings.map(w=>`<li>${w}</li>`).join('');
-    html+=`
-    <div class="section">
-      <div class="section-head" onclick="toggleSection(this)">
-        <span class="section-title">⚠️ Warnings (${d.warnings.length})</span>
-        <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-      </div>
-      <div class="section-body"><ul class="warn-list">${items}</ul></div>
-    </div>`;
-  }
-
-  results.innerHTML=html;
-  results.scrollIntoView({behavior:'smooth',block:'start'});
-}
-
-function toggleSection(head){
-  head.closest('.section').classList.toggle('collapsed');
-}
+})();
 </script>
 </body>
 </html>
